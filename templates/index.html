@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Registration with face</title>
+</head>
+<body>
+    <video id="video" width="400" height="280" autoplay></video>
+    <br>
+    <canvas id="canvas" width="400" height="280" style="display:none;"></canvas>
+    <br>
+    <h3>Register Account</h3>
+    <label for="name">Please enter your name</label>
+    <input type="text" id="name" name="name">
+    <br>
+    <button onclick="register()">Register</button>
+    <script src="{{url_for('static', filename='js/script.js')}}"></script>
+</body>
+</html>
