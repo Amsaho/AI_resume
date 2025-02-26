@@ -2,22 +2,211 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>login form with face</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: sans-serif;
+        }
+
+        body {
+            width: 100vw;
+            height: 100vh;
+            background: url(./static/bg.jpg) no-repeat;
+            background-position: center;
+            background-size: cover;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            width: 400px;
+            height: 500px;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            border-radius: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.5);
+        }
+
+        h2 {
+            color: #fff;
+            font-size: 2em;
+            text-transform: uppercase;
+            padding: 20px 0;
+        }
+
+        .form-group {
+            position: relative;
+            width: 330px;
+            margin: 30px 0;
+            border-bottom: 3px solid #fff;
+        }
+
+        .form-group input {
+            width: 100%;
+            height: 50px;
+            padding: 0 35px 0 10px;
+            font-size: 1.2em;
+            background-color: transparent;
+            border: none;
+            outline: none;
+            color: #fff;
+        }
+
+        .form-group label {
+            position: absolute;
+            top: 50%;
+            left: 10px;
+            transform: translateY(-50%);
+            font-size: 1.2em;
+            color: #fff;
+            transition: 0.5s;
+            pointer-events: none; /* Prevents label from blocking input */
+        }
+
+        /* Move label up when input is focused or has content */
+        input:focus ~ label,
+        input:not(:placeholder-shown) ~ label {
+            top: -5px;
+            font-size: 1em;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .form-group i {
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+            color: #fff;
+            font-size: 1.2em;
+            cursor: pointer;
+        }
+
+        p {
+            text-align: center;
+            color: #fff;
+            margin: 10px 0;
+        }
+
+        p>a {
+            text-decoration: none;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        p>a:hover {
+            text-decoration: underline;
+            font-style: italic;
+        }
+
+        #btn {
+            width: 100%;
+            height: 50px;
+            border-radius: 40px;
+            border: none;
+            font-size: 1.5em;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin: 10px 0;
+            cursor: pointer;
+            transition: all 0.5s;
+        }
+
+        #btn:hover {
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+        }
+    </style>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    <video id="video" width="400" height="280" autoplay></video>
-    <br>
-    <!-- <button onclick="capture()">your capture photo face</button> -->
-    <br>
-    <canvas id="canvas" width="400" height="280" style="display:none;">
-    </canvas>
-    <br>
-    <h3>Login Account</h3>
-    <label for="name">Please enter your name</label>
-    <input type="text" id="name" name="name">
-    <br>
-    <!-- <button onclick="register()">Register</button> -->
-    <button onclick="login()">Login</button>
-    <script src="{{url_for('static',filename='js/script.js')}}"></script>
+    <div class="container">
+        <h2>Login</h2>
+        <form action="">
+            <!-- Username Field -->
+            <div class="form-group">
+                <input type="text" id="user_name" name="user_name" required placeholder=" ">
+                <label for="user_name">Username</label>
+                <i class="fa-solid fa-user"></i>
+            </div>
+
+            <!-- Password Field -->
+            <div class="form-group">
+                <input type="password" id="password" name="password" required placeholder=" ">
+                <label for="password">Password</label>
+                <i class="fa-solid fa-eye" id="togglePassword"></i>
+            </div>
+
+            <!-- Remember Me and Forgot Password -->
+            <p>
+                <input type="checkbox"> Remember Me
+                <a href="#">Forgot Password</a>
+            </p>
+
+            <!-- Login Button -->
+            <button id="btn" type="button" onclick="login()">Login</button>
+
+            <!-- Register Link -->
+            <p>Don't have an account? <a href="{{ url_for('user_register') }}">User Register</a></p>
+        </form>
+    </div>
+
+    <script>
+        // Toggle password visibility
+        const togglePassword = document.getElementById("togglePassword");
+        const password = document.getElementById("password");
+
+        togglePassword.addEventListener("click", function () {
+            // Toggle the type attribute
+            const type = password.getAttribute("type") === "password" ? "text" : "password";
+            password.setAttribute("type", type);
+
+            // Toggle the eye icon
+            this.classList.toggle("fa-eye");
+            this.classList.toggle("fa-eye-slash");
+        });
+
+        function login() {
+            const user_name = document.getElementById("user_name").value;
+            const password = document.getElementById("password").value;
+
+            if (!user_name || !password) {
+                alert("Username and password are required.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("user_name", user_name);
+            formData.append("password", password);
+
+            fetch("/login", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert("Login successful!");
+                    window.location.href = "/success";
+                } else {
+                    alert("Login failed: " + data.error);
+                }
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                alert("An error occurred during login.");
+            });
+        }
+    </script>
 </body>
 </html>
