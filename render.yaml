@@ -3,7 +3,7 @@ services:
     name: flask-app
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app1
+    startCommand: gunicorn app1:app
     envVars:
       - key: MONGO_URI
         value: mongodb+srv://amlansahoo4feb:Amlan2003@cluster0.yvgaw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
