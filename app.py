@@ -60,8 +60,6 @@ app.config['RESUME_UPLOAD_FOLDER'] = RESUME_UPLOAD_FOLDER
 
 # Ensure the directory exists
 os.makedirs(RESUME_UPLOAD_FOLDER, exist_ok=True)
-db = create_collections_with_validation()
-db1 = create_collections_with_validation_admin()
 db = client['face_recognition']
 collection = db['users'] 
 admin_collection=db["admins"]
