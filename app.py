@@ -29,9 +29,7 @@ import spacy
 nlp = spacy.load("en_core_web_sm")
 import re
 app = Flask(__name__)
-app.config['MONGO_URI'] = os.getenv('MONGO_URI')
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-app.config['DEBUG'] = os.getenv('DEBUG', default=False)
+
 from io import BytesIO
 from PIL import Image
 import base64
@@ -49,7 +47,7 @@ cloudinary.config(
 )
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Session expires after 30 minutes
 from pymongo import MongoClient
-client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+client = MongoClient(os.getenv("MONGO_URI"))
 @app.before_request
 def before_request():
     session.permanent = True  
