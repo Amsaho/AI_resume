@@ -975,7 +975,7 @@ def admin_update_resume(user_id):
         print(f"MongoDB Error: {e}")
         return jsonify({"error": "An error occurred while updating the resume."}), 500
 @app.route('/download_resume/<pdf_url>')
-def download_resume(pdf_url):
+def generate_download_resume(pdf_url):
     """Serves the resume file from Cloudinary."""
     try:
         # Fetch the file from Cloudinary
