@@ -2,7 +2,7 @@ from pymongo import MongoClient
 from pymongo.errors import CollectionInvalid
 
 def create_collections_with_validation():
-    client = MongoClient('mongodb://localhost:27017/')
+    client = MongoClient('')
     db = client['face_recognition']
     
     # Define the schema validation
