@@ -49,7 +49,7 @@ cloudinary.config(
 )
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Session expires after 30 minutes
 from pymongo import MongoClient
-client = MongoClient(os.getenv('ATLAS_DB'))
+client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
 @app.before_request
 def before_request():
     session.permanent = True  
