@@ -9,8 +9,6 @@ import pymongo
 import numpy as np
 from datetime import datetime
 import datetime
-from schema import create_collections_with_validation
-from admin_schema import create_collections_with_validation_admin
 from werkzeug.security import generate_password_hash
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
