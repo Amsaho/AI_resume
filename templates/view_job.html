@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ jobs[1] }} - Job Details</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            font-size: 2.5em;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            font-size: 1.8em;
+            color: #3498db;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        p {
+            font-size: 1.1em;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+        strong {
+            color: #2c3e50;
+        }
+        a {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+        a:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ jobs[1] }}</h1> <!-- Assuming jobs[1] is the title -->
+        <p><strong>Description:</strong> {{ jobs[2] }}</p> <!-- Assuming jobs[2] is the description -->
+        
+        <h2>Skills Required</h2>
+        <p>{{ jobs[3] }}</p> <!-- Assuming jobs[3] is the skills -->
+        
+        <h2>Experience</h2>
+        <p>{{ jobs[4] }}</p> <!-- Assuming jobs[4] is the experience -->
+        
+        <h2>Projects</h2>
+        <p>{{ jobs[5] }}</p> <!-- Assuming jobs[5] is the projects -->
+        
+        <h2>Education</h2>
+        <p>{{ jobs[6] }}</p> <!-- Assuming jobs[6] is the education -->
+        
+        <h2>Qualifications</h2>
+        <p>{{ jobs[7] }}</p> <!-- Assuming jobs[7] is the qualifications -->
+        
+        
+    </div>
+</body>
+</html>

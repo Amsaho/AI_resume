@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Job Listings</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #f0f2f5;
+            padding: 2rem;
+        }
+
+        .job-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .job-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s ease;
+        }
+
+        .job-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .job-id {
+            color: #6b7280;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .job-title {
+            color: #1f2937;
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        .job-description {
+            color: #4b5563;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .skills-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .skill-tag {
+            background-color: #e5e7eb;
+            color: #374151;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+        }
+
+        .apply-btn {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background-color 0.2s ease;
+            width: 100%;
+        }
+
+        .apply-btn:hover {
+            background-color: #059669;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+            
+            .job-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    
+    <div class="job-container">
+        {% for job in jobs %}
+        <div class="job-card">
+            <h3 class="job-title">{{ job.title }}</h3>
+            <p class="job-description">{{ job.description }}</p>
+            <div class="skills-list">
+                {% for skill in job.skills.split(',') %}
+                <span class="skill-tag">{{ skill.strip() }}</span>
+                {% endfor %}
+            </div>
+            <button class="apply-btn" onclick="applyJob('{{ job.title }}')">
+                Apply Now
+            </button>
+            <hr>
+            <button class ="apply-btn" onclick="viewJob('{{ job.title }}')"> view job_details</button>
+
+        </div>
+        {% endfor %}
+        
+    </div>
+</div>
+<form method="GET" action="/success">
+    <button class="apply-btn"> back to profile</button>
+</form>
+    <script>
+         function viewJob(job_title)
+         {
+        const encodedJobTitle = encodeURIComponent(job_title);
+        const url = `/view_job/${encodedJobTitle}`;
+       fetch(url, {method: 'GET'})
+       window.location.href = url
+         }
+    function applyJob(job_title) {
+        if (!job_title) {
+            alert("Error: Invalid job title");
+            return;
+        }
+        
+
+        const button = event.target;
+        button.disabled = true;
+        button.textContent = 'Applying...';
+        button.style.backgroundColor = '#6ee7b7';
+
+        const encodedJobTitle = encodeURIComponent(job_title);
+        const url = `/apply_job/${encodedJobTitle}`;
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.text().then(text => {
+                    throw new Error(`Application failed: ${text}`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            alert(data.message);
+            button.style.backgroundColor = '#10b981';
+            button.textContent = 'Applied!';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert(error.message);
+            button.disabled = false;
+            button.textContent = 'Apply Now';
+            button.style.backgroundColor = '#10b981';
+        });
+    }
+    </script>
+</body>
+</html>
