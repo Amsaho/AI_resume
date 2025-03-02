@@ -2,13 +2,15 @@ from dotenv import load_dotenv
 import os
 load_dotenv()
 
-from flask import Flask, jsonify, request, render_template, redirect, url_for, session,send_file,send_from_directory
+from flask import Flask, jsonify, request, render_template, redirect, url_for, session,send_file,send_from_directory,flash
 from bson import ObjectId
 import base64
 import pymongo 
 import numpy as np
 from datetime import datetime
 import datetime
+from schema import create_collections_with_validation
+from admin_schema import create_collections_with_validation_admin
 from werkzeug.security import generate_password_hash
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
@@ -27,7 +29,9 @@ import spacy
 nlp = spacy.load("en_core_web_sm")
 import re
 app = Flask(__name__)
-
+app.config['MONGO_URI'] = os.getenv('MONGO_URI')
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+app.config['DEBUG'] = os.getenv('DEBUG', default=False)
 from io import BytesIO
 from PIL import Image
 import base64
@@ -44,8 +48,8 @@ cloudinary.config(
     api_secret=os.getenv('CLOUD_API_SECRET')
 )
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Session expires after 30 minutes
-from pymongo import MongoClient
-client = MongoClient(os.getenv("MONGO_URI"))
+# from pymongo import MongoClient
+# client = MongoClient(os.getenv('MONGO_URI'))
 @app.before_request
 def before_request():
     session.permanent = True  
@@ -58,9 +62,12 @@ app.config['RESUME_UPLOAD_FOLDER'] = RESUME_UPLOAD_FOLDER
 
 # Ensure the directory exists
 os.makedirs(RESUME_UPLOAD_FOLDER, exist_ok=True)
-db = client['face_recognition']
+db = create_collections_with_validation()
+db1 = create_collections_with_validation_admin()
+# db = client['face_recognition']
 collection = db['users'] 
-admin_collection=db["admins"]
+admin_collection=db1["admins"]
+job_applications_collection = db['job_applications']
 fs = gridfs.GridFS(db) 
 secret_key = os.urandom(24)
 print(secret_key)
@@ -88,8 +95,8 @@ app.config['EDIT_UPLOAD_FOLDER'] = EDIT_UPLOAD_FOLDER
 def get_jobs_from_db():
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT title, description FROM job_descriptions")
-    jobs = [{"title": row[0], "description": row[1]} for row in cursor.fetchall()]
+    cursor.execute("SELECT title, description ,skills FROM job_descriptions")
+    jobs = [{"title": row[0], "description": row[1], "skills": row[2]} for row in cursor.fetchall()]
     conn.close()
     return jobs
 @app.route("/")
@@ -142,6 +149,8 @@ def admin_login():
     
     name = request.form.get("name")
     password = request.form.get("password")
+    print(name)
+    print(password)
 
     if not name or not password:
         return jsonify({"success": False, "error": "Name and password are required"}), 400
@@ -176,7 +185,7 @@ def admin():
                                       "registration_no": 1, "bio": 1, "photo_url": 1, 
                                       "ats_score": 1, "missing_skills": 1, "recommended_jobs": 1}))
     
-    return render_template("admin.html", users=users)
+    return render_template("admin.html", user=users)
 
 
 
@@ -351,10 +360,14 @@ def success():
     # Check if the session is for a user
     if 'user_name' not in session or session.get('user_role') != 'user':
         return redirect(url_for('user_login'))
-
+    jobs=get_jobs_from_db()
     user_name = session['user_name']
     user = collection.find_one({"user_name": user_name})
-    return render_template("success.html", user=user)
+    job_applications = list(job_applications_collection.find({"user_name": user_name}))
+
+    # Add job applications to the user object
+    user['application_status'] = job_applications
+    return render_template("success.html", user=user,jobs=jobs)
 
 @app.route("/admin_success")
 def admin_success():
@@ -367,7 +380,9 @@ def admin_success():
     user = collection.find_one({"user_name": user_name})
 
     if not user:
-        return redirect(url_for('user_login'))  # Redirect to login if user not found
+        return redirect(url_for('user_login'))
+    
+  # Redirect to login if user not found
 
     return render_template("success.html", user=user)
 
@@ -398,7 +413,14 @@ app.config['RESUME_FOLDER'] =RESUME_FOLDER
 
 
 nlp = spacy.load("en_core_web_sm")  # Load NLP model
-
+def fetch_admin_jobs():
+    """Fetches job descriptions and skills from the database."""
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM job_descriptions")
+    jobs = cursor.fetchall()
+    conn.close()
+    return jobs
 # Fetch job descriptions from the database
 def fetch_jobs():
     """Fetches job descriptions and skills from the database."""
@@ -448,13 +470,14 @@ def extract_skills(text):
     # Handle common variations
     variations_map = {
         'js': 'javascript',
-        'node': 'node.js',
+        'node': 'nodejs',
         'reactjs': 'react',
         'vuejs': 'vue',
         'angularjs': 'angular',
         'ml': 'machine learning',
         'ai': 'artificial intelligence',
-        'aws cloud': 'aws'
+        'aws cloud': 'aws',
+        "sql":"mysql"
     }
     
     for variation, standard in variations_map.items():
@@ -467,15 +490,22 @@ def extract_skills(text):
 
 
 def calculate_ats_score(resume_text, job_description, resume_skills, job_skills):
-    # Ensure both are sets before intersection
-    resume_skills = set(resume_skills)  # Convert list to set
-    job_skills = set(job_skills)  # Convert list to set
-    
-    matched_skills = resume_skills.intersection(job_skills)  # No more AttributeError
-    missing_skills = job_skills - resume_skills  # Skills required but not in resume
+    """Calculates ATS score using text similarity and skill matching."""
+    # Convert resume_skills and job_skills to sets
+    resume_skills_set = set(resume_skills)
+    job_skills_set = set(job_skills)
 
-    ats_score = (len(matched_skills) / len(job_skills)) * 100 if job_skills else 0
-    return round(ats_score, 2), list(missing_skills)  # Convert missing_skills back to list
+    # Calculate text similarity using TF-IDF and cosine similarity
+    vectorizer = TfidfVectorizer().fit_transform([resume_text, job_description])
+    similarity_score = cosine_similarity(vectorizer[0], vectorizer[1])[0][0] * 100
+
+    # Calculate skill match score
+    matched_skills = resume_skills_set.intersection(job_skills_set)
+    skill_match_score = (len(matched_skills) / len(job_skills_set)) * 100 if job_skills_set else 0
+
+    # Calculate overall ATS score
+    ats_score = round((similarity_score * 0.7) + (skill_match_score * 0.3), 2)
+    return ats_score, list(job_skills_set - matched_skills)  # Convert missing_skills back to list
 
 # Recommend jobs based on ATS score
 def recommend_jobs(resume_text, resume_skills):
@@ -738,6 +768,10 @@ def download_resume(pdf_id):
 def view_resume(user_id):
     user = collection.find_one({"_id": ObjectId(user_id)})
     return render_template('view_resume.html', user=user)
+@app.route('/view_resume_upload/<resume_pdf_id>')  # Example route
+def view_resume_upload(resume_pdf_id):
+    user = collection.find_one({"resume_pdf_id": ObjectId(resume_pdf_id)})
+    return render_template('view_resume.html', user=user)
 @app.route('/resume_delete', methods=['POST'])
 def resume_delete():
     if 'user_name' not in session:
@@ -850,6 +884,9 @@ def update_resume():
                 resume_text, job_recommendations[0]["description"], resume_skills, job_recommendations[0]["skills"]
             )
             missing_skills = list(missing_skills)
+        for job in job_recommendations:
+           job['skills'] = list(job.get('skills', []))  # Convert skills to list
+           job['missing_skills'] = list(job.get('missing_skills', []))
 
         updated_resume_data = {
             "resume_url": pdf_url,  # Use Cloudinary URL
@@ -942,6 +979,9 @@ def admin_update_resume(user_id):
             resume_text, job_recommendations[0]["description"], resume_skills, job_recommendations[0]["skills"]
         )
         missing_skills = list(missing_skills)
+    for job in job_recommendations:
+           job['skills'] = list(job.get('skills', []))  # Convert skills to list
+           job['missing_skills'] = list(job.get('missing_skills', []))
 
     updated_resume_data = {
         "resume_url": pdf_url,  # Use Cloudinary URL
@@ -1016,5 +1056,244 @@ def download_photo(photo_url):
     except Exception as e:
         print(f"Unexpected error: {e}")
         return jsonify({"error": "An unexpected error occurred."}), 500
+
+from urllib.parse import unquote
+@app.route("/apply_job_user", methods=["GET"])
+def apply_job_user():
+    jobs=get_jobs_from_db()
+    return render_template("apply.html",jobs=jobs)
+@app.route("/apply_job/<job_title>", methods=["POST"])
+def apply_job(job_title):
+    # Decode the job_title to handle spaces and special characters
+    job_title = unquote(job_title)
+    print(f"Job title received: {job_title}")
+
+    if 'user_name' not in session or session.get('user_role') != 'user':
+        return jsonify({"error": "User not logged in"}), 401
+
+    user_name = session['user_name']
+    user = collection.find_one({"user_name": user_name})
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Fetch the job details from the database using job_title
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT title, description, skills FROM job_descriptions WHERE title = ?", (job_title,))
+    job = cursor.fetchone()
+    conn.close()
+
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    job_title, job_description, job_skills = job
+
+    # Check if the user has already applied for this job
+    existing_application = job_applications_collection.find_one({
+        "user_name": user_name,
+        "job_title": job_title
+    })
+
+    if existing_application:
+        return jsonify({"error": "You have already applied for this job"}), 400
+
+    # Use the user's existing resume or generate a new one
+    if user.get('resume_pdf_id'):
+        resume_pdf_id = user['resume_pdf_id']
+        resume_text = user.get('upload_text', '')
+    else:
+        return jsonify({"error": "No resume found. Please upload resume first."}), 400
+
+    # Extract skills from the resume
+
+    # Save the job application
+    application_data = {
+        "user_name": user_name,
+        "job_title": job_title,
+        "resume_pdf_id": resume_pdf_id,
+        "resume_text": resume_text,
+        "ats_score": user["ats_score"],
+        "missing_skills": user["missing_skills"],
+        "status": "pending",  # Initial status
+        "application_date": datetime.datetime.utcnow()
+    }
+
+    job_applications_collection.insert_one(application_data)
+    collection.update_one(
+            {"user_name": user_name},
+            {"$set": {"application_status": list(application_data)}}
+        )
+
+    return jsonify({
+        "message": "Job application submitted successfully!",
+        "ats_score": user["ats_score"],
+        "missing_skills":user["missing_skills"],
+        "status": "pending"
+    })
+@app.route("/view_applications", methods=["GET"])
+def view_applications():
+    if 'admin_name' not in session or session.get('admin_role') != 'admin':
+        return jsonify({"error": "Admin not logged in"}), 401
+
+    # Fetch all job applications
+    applications = list(job_applications_collection.find({}))
+
+    return render_template("view_applications.html", applications=applications)
+@app.route("/update_application_status/<application_id>", methods=["POST"])
+def update_application_status(application_id):
+    # Check if the admin is logged in
+    if 'admin_name' not in session or session.get('admin_role') != 'admin':
+        return jsonify({"error": "Admin not logged in"}), 401
+
+    # Validate the request data
+    data = request.get_json()
+    if not data or 'status' not in data:
+        return jsonify({"error": "Status is required"}), 400
+
+    status = data['status']
+    if status not in ["accepted", "rejected"]:
+        return jsonify({"error": "Invalid status"}), 400
+
+    try:
+        # Fetch the application to get the user_name
+        application = job_applications_collection.find_one({"_id": ObjectId(application_id)})
+        if not application:
+            return jsonify({"error": "Application not found"}), 404
+
+        user_name = application.get("user_name")
+        if not user_name:
+            return jsonify({"error": "User not found in application"}), 404
+
+        # Update the application status in job_applications_collection
+        job_applications_collection.update_one(
+            {"_id": ObjectId(application_id)},
+            {"$set": {"status": status}}
+        )
+
+        # Update the user's document in the collection (users database)
+        collection.update_one(
+            {"user_name": user_name},
+            {"$set": {"application_status": application}}
+        )
+
+        return jsonify({"message": f"Application status changed to {status}"})
+
+    except Exception as e:
+        print(f"Error updating application status: {e}")
+        return jsonify({"error": "An error occurred while updating the application status"}), 500
+
+@app.route("/user/delete_application/<application_id>", methods=["DELETE"])
+def user_delete_application(application_id):
+    # Check if the user is logged in
+    if 'user_name' not in session or session.get('user_role') != 'user':
+        return jsonify({"error": "User not logged in"}), 401
+
+    user_name = session['user_name']
+
+    # Find the application by its ID and ensure it belongs to the logged-in user
+    application = collection.find_one({
+        "_id": ObjectId(application_id),
+        "user_name": user_name
+    })
+    if not application:
+        return jsonify({"error": "Application not found or unauthorized"}), 404
+
+    # Delete the application
+    collection.update({ "user_name":user_name }, { "$unset": { "application_status": "" } })
+
+    return jsonify({"message": "Application deleted successfully!"})
+@app.route("/view_job/<job_title>", methods=["GET"])
+def view_job(job_title):
+    job_title = unquote(job_title)
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM job_descriptions WHERE title = ?", (job_title,))
+    jobs = cursor.fetchone()
+    print(jobs)
+    return render_template("view_job.html",jobs=jobs)
+
+
+def update_job(job_id, title, description, skills, experience, projects, education, qualifications):
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE job_descriptions
+        SET title = ?, description = ?, skills = ?, experience = ?, projects = ?, education = ?, qualifications = ?
+        WHERE id = ?
+    """, (title, description, skills, experience, projects, education, qualifications, job_id))
+    conn.commit()
+    conn.close()
+
+def insert_job(title, description, skills, experience, projects, education, qualifications):
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+
+    # Insert the new job into the database
+    cursor.execute("""
+        INSERT INTO job_descriptions (title, description, skills, experience, projects, education, qualifications)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (title, description, skills, experience, projects, education, qualifications))
+
+    conn.commit()  
+    conn.close()   
+@app.route("/admin_jobs", methods=["GET", "POST"])
+def admin_jobs():
+    if 'admin_name' not in session or session.get('admin_role') != 'admin':
+        return jsonify({"error": "Admin not logged in"}), 401
+    if request.method == "POST":
+        # Handle job insertion or update
+        title = request.form.get("title")
+        description = request.form.get("description")
+        skills = request.form.get("skills")
+        experience = request.form.get("experience")
+        projects = request.form.get("projects")
+        education = request.form.get("education")
+        qualifications = request.form.get("qualifications")
+        job_id = request.form.get("job_id")
+
+        if job_id:  # Update existing job
+            update_job(job_id, title, description, skills, experience, projects, education, qualifications)
+            flash("Job updated successfully!", "success")
+        else:  # Insert new job
+            insert_job(title, description, skills, experience, projects, education, qualifications)
+            flash("Job added successfully!", "success")
+
+        return redirect(url_for("admin_jobs"))
+
+    # Fetch all jobs for display
+    jobs = fetch_admin_jobs()
+    return render_template("admin_jobs.html", jobs=jobs)
+@app.route("/admin/jobs/delete/<int:job_id>", methods=["POST"])
+def delete_job(job_id):
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM job_descriptions WHERE id = ?", (job_id,))
+    conn.commit()
+    conn.close()
+    flash("Job deleted successfully!", "success")
+    return redirect(url_for("admin_jobs"))
+@app.route("/admin/jobs/<int:job_id>", methods=["GET"])
+def get_job(job_id):
+    job = fetch_job_by_id(job_id)
+    if job:
+        return jsonify({
+            "id": job[0],
+            "title": job[1],
+            "description": job[2],
+            "skills": job[3],
+            "experience": job[4],
+            "projects": job[5],
+            "education": job[6],
+            "qualifications": job[7]
+        })
+    return jsonify({"error": "Job not found"}), 404
+def fetch_job_by_id(job_id):
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM job_descriptions WHERE id = ?", (job_id,))
+    job = cursor.fetchone()
+    conn.close()
+    return job
 if __name__ == "__main__":
     app.run(debug=os.getenv('DEBUG', 'False') == 'True')
