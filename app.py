@@ -48,8 +48,8 @@ cloudinary.config(
     api_secret=os.getenv('CLOUD_API_SECRET')
 )
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Session expires after 30 minutes
-# from pymongo import MongoClient
-# client = MongoClient(os.getenv('MONGO_URI'))
+from pymongo import MongoClient
+client = MongoClient(os.getenv('MONGO_URI'))
 @app.before_request
 def before_request():
     session.permanent = True  
@@ -62,11 +62,9 @@ app.config['RESUME_UPLOAD_FOLDER'] = RESUME_UPLOAD_FOLDER
 
 # Ensure the directory exists
 os.makedirs(RESUME_UPLOAD_FOLDER, exist_ok=True)
-db = create_collections_with_validation()
-db1 = create_collections_with_validation_admin()
-# db = client['face_recognition']
+db = client['face_recognition']
 collection = db['users'] 
-admin_collection=db1["admins"]
+admin_collection=db["admins"]
 job_applications_collection = db['job_applications']
 fs = gridfs.GridFS(db) 
 secret_key = os.urandom(24)
