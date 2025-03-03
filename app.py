@@ -1181,22 +1181,14 @@ def update_application_status(application_id):
 
 @app.route("/delete_application/<application_id>", methods=["DELETE"])
 def user_delete_application(application_id):
-    # Check if the user is logged in
-    if 'user_name' not in session or session.get('user_role') != 'user':
-        return jsonify({"error": "User not logged in"}), 401
-
-    user_name = session['user_name']
-
-    # Find the application by its ID and ensure it belongs to the logged-in user
     application = collection.find_one({
-        "_id": ObjectId(application_id),
-        "user_name": user_name
+        "_id": ObjectId(application_id)
     })
     if not application:
         return jsonify({"error": "Application not found or unauthorized"}), 404
 
     # Delete the application
-    collection.update({ "user_name":user_name }, { "$unset": { "application_status": "" } })
+    collection.update_one({ "_id":ObjectId(application_id) }, { "$unset": { "application_status": "" } })
 
     return jsonify({"message": "Application deleted successfully!"})
 @app.route("/view_job/<job_title>", methods=["GET"])
