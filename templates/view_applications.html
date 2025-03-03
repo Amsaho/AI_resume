@@ -201,7 +201,7 @@
         }
     function deleteApplication(application_id) {
         if (confirm("Are you sure you want to delete this application?")) {
-            fetch(`delete_application/${application_id}`, {
+            fetch(`/delete_application/${application_id}`, {
                 method: 'DELETE'
             })
             .then(response => {
