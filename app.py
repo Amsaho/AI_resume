@@ -1179,7 +1179,7 @@ def update_application_status(application_id):
         print(f"Error updating application status: {e}")
         return jsonify({"error": "An error occurred while updating the application status"}), 500
 
-@app.route("delete_application/<application_id>", methods=["DELETE"])
+@app.route("/delete_application/<application_id>", methods=["DELETE"])
 def user_delete_application(application_id):
     # Check if the user is logged in
     if 'user_name' not in session or session.get('user_role') != 'user':
