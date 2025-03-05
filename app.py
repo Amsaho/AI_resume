@@ -69,6 +69,11 @@ secret_key = os.urandom(24)
 print(secret_key)
 app.secret_key = secret_key
 
+SMTP_EMAIL = os.getenv("SMTP_EMAIL")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+SMTP_SERVER = os.getenv("SMTP_SERVER")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+
 REGISTRATION_UPLOAD_FOLDER = 'static/registration_uploads/'
 app.config['REGISTRATION_UPLOAD_FOLDER'] = REGISTRATION_UPLOAD_FOLDER
 
@@ -204,6 +209,7 @@ def register():
         registration_no = request.form.get("registrationno")
         branch = request.form.get("branch")
         bio = request.form.get("bio")
+        email = request.form.get('email')
         photo = request.files.get('photo')  # Use .get() to avoid KeyError if 'photo' is missing
         password = request.form.get("password")
 
@@ -236,6 +242,7 @@ def register():
             "bio": bio,
             "photo_url": photo_url,  # Use Cloudinary URL
             "password": hashed_password,
+            "email":email,
             "role": "user"
         }
 
@@ -289,6 +296,7 @@ def edit_user(user_id):
         branch = request.form.get("branch")
         registrationno = request.form.get("registrationno")
         bio = request.form.get("bio")
+        email=request.form.get("email")
         photo = request.files.get('photo')
 
         # Handle photo upload
@@ -317,6 +325,7 @@ def edit_user(user_id):
                 "registration_no": registrationno,
                 "bio": bio,
                 "photo_url": photo_url,
+                "email":email,
                 "role": "user"
             }}
         )
@@ -1058,6 +1067,9 @@ from urllib.parse import unquote
 def apply_job_user():
     jobs=get_jobs_from_db()
     return render_template("apply.html",jobs=jobs)
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 @app.route("/apply_job/<job_title>", methods=["POST"])
 def apply_job(job_title):
     # Decode the job_title to handle spaces and special characters
@@ -1101,8 +1113,6 @@ def apply_job(job_title):
     else:
         return jsonify({"error": "No resume found. Please upload resume first."}), 400
 
-    # Extract skills from the resume
-
     # Save the job application
     application_data = {
         "user_name": user_name,
@@ -1114,28 +1124,55 @@ def apply_job(job_title):
         "status": "pending",  # Initial status
         "application_date": datetime.datetime.utcnow()
     }
-
     job_applications_collection.insert_one(application_data)
     collection.update_one(
-            {"user_name": user_name},
-            {"$set": {"application_status": list(application_data)}}
-        )
+        {"user_name": user_name},
+        {"$set": {"application_status": list(application_data)}}
+    )
+
+    # Send confirmation email
+    try:
+        send_confirmation_email(user['email'], job_title)
+    except Exception as e:
+        print(f"Failed to send confirmation email: {e}")
 
     return jsonify({
         "message": "Job application submitted successfully!",
         "ats_score": user["ats_score"],
-        "missing_skills":user["missing_skills"],
+        "missing_skills": user["missing_skills"],
         "status": "pending"
     })
-@app.route("/view_applications", methods=["GET"])
-def view_applications():
-    if 'admin_name' not in session or session.get('admin_role') != 'admin':
-        return jsonify({"error": "Admin not logged in"}), 401
 
-    # Fetch all job applications
-    applications = list(job_applications_collection.find({}))
+def send_confirmation_email(user_email, job_title):
+    """Send a confirmation email to the user."""
+    subject = "Job Application Confirmation"
+    body = f"""
+    Dear Applicant,
 
-    return render_template("view_applications.html", applications=applications)
+    Thank you for applying for the position of {job_title}. 
+    Your application has been successfully submitted.
+
+    Due to the high volume of applications, we will carefully review your profile and sincerely consider you for applicable roles.
+
+    Best regards,
+    The Hiring Team
+    """
+
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_EMAIL
+    msg['To'] = user_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Secure the connection
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
+        print("Confirmation email sent successfully!")
+    except Exception as e:
+        print(f"Error sending email: {e}")
+
 @app.route("/update_application_status/<application_id>", methods=["POST"])
 def update_application_status(application_id):
     # Check if the admin is logged in
@@ -1152,14 +1189,24 @@ def update_application_status(application_id):
         return jsonify({"error": "Invalid status"}), 400
 
     try:
-        # Fetch the application to get the user_name
+        # Fetch the application to get the user_name and job_title
         application = job_applications_collection.find_one({"_id": ObjectId(application_id)})
         if not application:
             return jsonify({"error": "Application not found"}), 404
 
         user_name = application.get("user_name")
-        if not user_name:
-            return jsonify({"error": "User not found in application"}), 404
+        job_title = application.get("job_title")
+        if not user_name or not job_title:
+            return jsonify({"error": "User or job details not found in application"}), 404
+
+        # Fetch the user's email from the users collection
+        user = collection.find_one({"user_name": user_name})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        user_email = user.get("email")
+        if not user_email:
+            return jsonify({"error": "User email not found"}), 404
 
         # Update the application status in job_applications_collection
         job_applications_collection.update_one(
@@ -1173,24 +1220,105 @@ def update_application_status(application_id):
             {"$set": {"application_status": application}}
         )
 
+        # Send email notification based on status
+        if status == "accepted":
+            send_selection_email(user_email, job_title)
+        elif status == "rejected":
+            send_rejection_email(user_email, job_title)
+
         return jsonify({"message": f"Application status changed to {status}"})
 
     except Exception as e:
         print(f"Error updating application status: {e}")
         return jsonify({"error": "An error occurred while updating the application status"}), 500
 
+def send_selection_email(user_email, job_title):
+    """Send an email to notify the user that their application has been accepted."""
+    subject = "Congratulations! Your Application Has Been Accepted"
+    body = f"""
+    Dear Applicant,
+
+    We are pleased to inform you that your application for the position of {job_title} 
+    has been accepted. Congratulations!
+
+    Our team will contact you shortly to discuss the next steps in the hiring process.
+
+    Best regards,
+    The Hiring Team
+    """
+
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_EMAIL
+    msg['To'] = user_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Secure the connection
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
+        print("Selection email sent successfully!")
+    except Exception as e:
+        print(f"Error sending selection email: {e}")
+
+def send_rejection_email(user_email, job_title):
+    """Send an email to notify the user that their application has been rejected."""
+    subject = "Application Status Update"
+    body = f"""
+    Dear Applicant,
+
+    Thank you for applying for the position of {job_title}. 
+    After careful consideration, we regret to inform you that your application 
+    has not been selected for further processing.
+
+    We appreciate your interest in our organization and encourage you to apply 
+    for future opportunities that match your skills and experience.
+
+    Best regards,
+    The Hiring Team
+    """
+
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_EMAIL
+    msg['To'] = user_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Secure the connection
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
+        print("Rejection email sent successfully!")
+    except Exception as e:
+        print(f"Error sending rejection email: {e}")
 @app.route("/delete_application/<application_id>", methods=["DELETE"])
-def user_delete_application(application_id):
-    application = collection.find_one({
-        "_id": ObjectId(application_id)
+def admin_delete_application(application_id):
+    application = job_applications_collection.find_one({
+        "_id": ObjectId(application_id),
     })
     if not application:
         return jsonify({"error": "Application not found or unauthorized"}), 404
 
-    # Delete the application
-    collection.update_one({ "_id":ObjectId(application_id) }, { "$unset": { "application_status": "" } })
-
+    job_applications_collection.delete_one({"_id":ObjectId(application_id)})
     return jsonify({"message": "Application deleted successfully!"})
+@app.route("/user_delete_application", methods=["DELETE"])
+def user_delete_application():
+    if 'user_name' not in session or session.get('user_role') != 'user':
+        return jsonify({"error": "User not logged in"}), 401
+    user_name = session['user_name']
+    job_applications_collection.delete_one({"user_name":user_name})
+    return jsonify({"message": "your job application successfully deleted"})
+@app.route("/view_applications", methods=["GET"])
+def view_applications():
+    if 'admin_name' not in session or session.get('admin_role') != 'admin':
+        return jsonify({"error": "Admin not logged in"}), 401
+
+    # Fetch all job applications
+    applications = list(job_applications_collection.find({}))
+
+    return render_template("view_applications.html", applications=applications)
 @app.route("/view_job/<job_title>", methods=["GET"])
 def view_job(job_title):
     job_title = unquote(job_title)
