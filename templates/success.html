@@ -86,12 +86,9 @@
     </style>
 </head>
 <body>
-    <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-light">
         <a class="navbar-brand" href="#">
-            {% if user['photo_url'] %}
-                <a src="{{ url_for('download_photo', photo_url=user.photo_url) }}" ></a>
-            {% endif %}
+                <img src="{{  user['photo_url'] }}" ></img>
             {{ user['name'] }}
         </a>
         <div class="ml-auto">
@@ -100,7 +97,6 @@
         </div>
     </nav>
 
-    <!-- Main Content -->
     <div class="container">
         <h1 class="text-center mb-4">
             Welcome, {{ user['name'] }}</h1>
@@ -122,6 +118,7 @@
                             <th>Job Title</th>
                             <th>Status</th>
                             <th>Submitted Date</th>
+                            <th>action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -140,9 +137,10 @@
                                 </td>
                                 <td>{{ application.application_date.strftime(' %H:%M:%S %d-%m-%Y ') }}
                             </td>
+                            <td><button class="btn btn-danger" onclick="deleteApplication()">Delete application</button></td>
                            
                         {% endfor %}
-                    </tbody>
+                    </a<>
                 </table>
             {% else %}
                 <p>No job applications found.</p>
@@ -197,10 +195,10 @@
             <p>No uploaded resume found.</p>
         {% endif %}
 
-        {% if user.email %}
+        {% if user.phone %}
             <div class="resume-section">
                 <h4>Generated Resume</h4>
-                <a class="btn btn-warning" href="{{ url_for('download_resume', pdf_url=user.resume_url) }}" target="_blank">Download Resume</a>
+                <a class="btn btn-warning" href="{{ url_for('generate_download_resume', pdf_url=user.resume_url) }}" target="_blank">Download Resume</a>
                 <a class="btn btn-info" href="{{ url_for('view_resume', user_id=user._id) }}">View Resume</a>
                 <form action="{{ url_for('resume_delete') }}" method="POST" style="display: inline;">
                     <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete your resume?')">
@@ -247,29 +245,29 @@
     </div>
     <!-- Application Details Table -->
     <script>
-        function deleteApplication(application_id) {
-        if (confirm("Are you sure you want to delete this application?")) {
-            fetch(`/admin/delete_application/${application_id}`, {
-                method: 'DELETE'
-            })
-            .then(response => {
-                if (!response.ok) {
-                    return response.text().then(text => {
-                        throw new Error(`Server responded with ${response.status}: ${text}`);
-                    });
-                }
-                return response.json();
-            })
-            .then(data => {
-                alert(data.message);
-                window.location.reload(); // Refresh the page to reflect the deletion
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert(error.message);
-            });
-        }
+      function deleteApplication() {
+    if (confirm("Are you sure you want to delete this application?")) {
+        fetch("/user_delete_application", {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.text().then(text => {
+                    throw new Error(`Server responded with ${response.status}: ${text}`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            alert(data.message);
+            window.location.reload(); // Refresh the page to reflect the deletion
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert(error.message);
+        });
     }
+}
     </script>
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
