@@ -374,21 +374,23 @@ def success():
     user['application_status'] = job_applications
     return render_template("success.html", user=user,jobs=jobs)
 
-@app.route("/admin_success")
-def admin_success():
+@app.route("/admin_success/<user_id>")
+def admin_success(user_id):
     # Check if the session is for an admin
     if 'admin_name' not in session or session.get('admin_role') != 'admin':
         return redirect(url_for('admin_login_page'))
 
     # Fetch the user's details from the database
-    user_name = request.args.get("user_name")
-    user = collection.find_one({"user_name": user_name})
+    user = collection.find_one({"_id": ObjectId(user_id)})
 
     if not user:
         return redirect(url_for('user_login'))
     
   # Redirect to login if user not found
+    job_applications = list(job_applications_collection.find({"user_name": user["user_name"]}))
 
+    # Add job applications to the user object
+    user['application_status'] = job_applications
     return render_template("success.html", user=user)
 
 @app.route("/logout")
