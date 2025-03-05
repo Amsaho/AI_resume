@@ -91,7 +91,7 @@
                     </td>
                     <td>
                         <div class="btn-group">
-                            <a href="{{ url_for('admin_success', user_name=user['user_name'] )}}" class="btn btn-info">View</a>
+                            <a href="{{ url_for('admin_success', user_id=user['_id'] )}}" class="btn btn-info">View</a>
                             <a href="{{ url_for('edit_user', user_id=user['_id']) }}" class="btn btn-warning">Edit</a>
                             <a href="{{ url_for('view_resume', user_id=user['_id']) }}" class="btn btn-view">View Resume</a>
                             <form action="{{ url_for('get_admin_update_resume', user_id=user['_id']) }}" method="get">
