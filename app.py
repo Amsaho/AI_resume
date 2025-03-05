@@ -300,13 +300,13 @@ def edit_user(user_id):
         photo = request.files.get('photo')
 
         # Handle photo upload
-        if photo:
-            filename = secure_filename(photo.filename)
-            photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            photo.save(photo_path)
-            photo_url = photo_path
-        else:
-            photo_url = user['photo_url']
+        try:
+            cloudinary_response = cloudinary.uploader.upload(photo)
+            photo_url = cloudinary_response['secure_url']
+            print("Cloudinary response:", cloudinary_response)
+        except Exception as e:
+            print("Cloudinary upload failed:", str(e))
+            return jsonify({"success": False, "error": "Failed to upload photo to Cloudinary"}), 500
 
         # Validate and convert rollno and registrationno to integers
         try:
