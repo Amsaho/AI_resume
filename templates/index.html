@@ -1,5 +1,3 @@
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -14,7 +12,7 @@
             box-sizing: border-box;
         }
 
-        /* body {
+        body {
             font-family: 'Poppins', sans-serif;
             background: url('https://images.unsplash.com/photo-1573497491208-6b1acb260507?w=1600') no-repeat center center fixed;
             background-size: cover;
@@ -22,8 +20,9 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-        } */
+            justify-content: flex-start;
+            overflow-y: auto;
+        }
 
         /* Navbar Styles */
         .navbar {
@@ -36,6 +35,7 @@
             position: fixed;
             top: 0;
             left: 0;
+            z-index: 1000;
         }
 
         .navbar .logo {
@@ -43,7 +43,6 @@
             font-weight: bold;
             color: #ffcc00;
         }
-
 
         .navbar ul {
             list-style: none;
@@ -66,15 +65,25 @@
             color: #ffcc00;
         }
 
-        /* Centered Dashboard Container */
-        
+        /* Dashboard Container */
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            margin-top: 100px;
+            max-width: 600px;
+        }
 
         h1 {
-    font-weight: bold;
-    font-size: 32px; /* Make it bigger */
-    color: black; /* Ensure contrast */
-    text-transform: uppercase; /* Optional: Makes text all caps */
-}
+            font-weight: bold;
+            font-size: 32px;
+            color: black;
+            text-transform: uppercase;
+        }
+
         /* Buttons */
         .dashboard-links a {
             display: inline-block;
@@ -94,20 +103,106 @@
             transform: translateY(-3px);
         }
 
-        /* Footer */
-        /* .footer {
-            width: 100%;
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            text-align: center;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            font-size: 14px;
-        } */
+        /* Floating Job Section */
+        @keyframes slide {
+    0% {
+        transform: translateX(100%);
+    }
+    100% {
+        transform: translateX(-300%);
+    }
+}
 
-        /* About Me Modal */
+.floating-jobs {
+    position: fixed;
+    bottom: -100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    max-width: 800px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.5);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    z-index: 999;
+    overflow-x: hidden; /* Hide horizontal scrollbar */
+    white-space: nowrap;
+    backdrop-filter: blur(8px);
+    transition: bottom 0.5s ease-in-out;
+}
+
+.floating-jobs.show {
+    bottom: 60px;
+     /* Adjust duration as needed */
+}
+
+.job-card {
+    display: inline-block;
+    width: 300px;
+    margin: 0 10px;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.5);;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    animation: slide 20s linear infinite;
+     /* Apply the same animation */
+}
+        .close-floating-jobs {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            background: rgba(255, 0, 0, 0.7);
+            color: white;
+            border: none;
+            font-size: 16px;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .close-floating-jobs:hover {
+            background: rgba(255, 0, 0, 0.9);
+        }
+
+        
+
+        .job-card img {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            margin-bottom: 10px;
+           
+        }
+
+        .view-job-btn {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: background 0.3s ease;
+        }
+
+        .view-job-btn:hover {
+            background: #0056b3;
+        }
+        .close-btn {
+            background: #ff5b5b;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .close-btn:hover {
+            background: #e04545;
+        }
         .modal {
             display: none;
             position: fixed;
@@ -134,69 +229,19 @@
             color: #555;
         }
 
-        .close-btn {
-            background: #ff5b5b;
+
+        .contact-section {
+            width: 100%;
+            padding: 30px;
+            background: rgba(0, 0, 0, 0.8);
             color: white;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-top: 10px;
+            text-align: center;
+            margin-top: 200px;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
         }
 
-        .close-btn:hover {
-            background: #e04545;
-        }
-        
-        body {
-    font-family: 'Poppins', sans-serif;
-    background: url('https://images.unsplash.com/photo-1573497491208-6b1acb260507?w=1600') no-repeat center center fixed;
-    background-size: cover;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-start; /* Change from center to flex-start */
-    overflow-y: auto; /* Enables vertical scrolling */
-}
-
-/* Centered Dashboard Container */
-.container {
-    text-align: center;
-    background: rgba(255, 255, 255, 0.15);
-    padding: 30px;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(10px);
-    margin-top: 100px; /* Move the container down for centering */
-    max-width: 600px; /* Limit width */
-}
-
-/* Ensure footer stays at the bottom */
-.footer {
-    width: 100%;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    text-align: center;
-    padding: 10px;
-    background: rgba(0, 0, 0, 0.7);
-    color: white;
-    font-size: 14px;
-}
-
-/* Contact Section */
-.contact-section {
-    width: 100%;
-    padding: 30px;
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    text-align: center;
-    margin-top: 200px; /* Increased space from the container */
-    display: none;
-    opacity: 0;
-    transition: opacity 0.5s ease-in-out;
-}
         .contact-section.show {
             display: block;
             opacity: 1;
@@ -211,23 +256,36 @@
             font-size: 16px;
             margin: 5px 0;
         }
-
-
+        /* Footer */
+        .footer {
+            width: 100%;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            text-align: center;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
 
     <!-- Navbar -->
     <div class="navbar">
-        <div class="logo">
-            Job Portal
-        </div>
+        <a class="logo" href="{{ url_for('apply_job_user') }}"> Job Portal</a>
         <ul>
             <li><a href="#">Home</a></li>
-            <li><a href="#" onclick="openJobs()">Jobs </a></li>
+            <li><a href="#" onclick="toggleJobs()">Jobs</a></li>
             <li><a href="#" onclick="openAboutMe()">About Me</a></li>
             <li><a href="#" onclick="toggleContact()">Contact</a></li>
         </ul>
+    </div>
+
+    <!-- Floating Job Cards -->
+    <div class="floating-jobs" id="floatingJobs">
+        
     </div>
 
     <!-- Dashboard Container -->
@@ -240,8 +298,6 @@
             <a href="{{ url_for('user_register') }}">User Register</a>
         </div>
     </div>
-
-    <!-- About Me Modal -->
     <div id="aboutMeModal" class="modal">
         <h2>About This System</h2>
         <p>
@@ -259,55 +315,60 @@
         </ul>
         <button class="close-btn" onclick="closeAboutMe()">Close</button>
     </div>
-    <div id="jobsModal" class="modal">
-        <h2>Available Job Roles</h2>
-        <ul id="jobList"></ul>
-        <button class="close-btn" onclick="closeJobs()">Close</button>
-    </div>
-    <div class="spacer"></div>
 
+    <!-- Contact Section -->
     <div id="contact" class="contact-section">
         <h2>Contact Us</h2>
         <p><strong>Email:</strong> support@jobportal.com</p>
         <p><strong>Phone:</strong> +91 6370309469</p>
         <p><strong>Address:</strong> Bhubaneswar </p>
     </div>
+
+
     <!-- Footer -->
     <div class="footer">
-        &copy; Amlan Ashish Sahoo 2025 Job Portal. All rights reserved.
+        &copy; 2025 Job Portal. All rights reserved.
     </div>
 
     <script>
-        function openAboutMe() {
+         function openAboutMe() {
             document.getElementById("aboutMeModal").style.display = "block";
         }
 
         function closeAboutMe() {
             document.getElementById("aboutMeModal").style.display = "none";
         }
-        
+        function toggleJobs() {
+            let floatingJobs = document.getElementById("floatingJobs");
 
-        function openJobs() {
-            fetch("/get_jobs")
-                .then(response => response.json())
-                .then(data => {
-                    let jobList = document.getElementById("jobList");
-                    jobList.innerHTML = "";
+            if (floatingJobs.classList.contains("show")) {
+                floatingJobs.classList.remove("show");
+            } else {
+                floatingJobs.classList.add("show");
 
-                    data.forEach(job => {
-                        let listItem = document.createElement("li");
-                        listItem.innerHTML = `<strong>${job.title}</strong> - ${job.description}`;
-                        jobList.appendChild(listItem);
+                // Fetch jobs dynamically
+                fetch("/get_jobs")
+                    .then(response => response.json())
+                    .then(data => {
+                        
+
+                        data.forEach(job => {
+                            let jobCard = document.createElement("div");
+                            jobCard.className = "job-card";
+                            jobCard.innerHTML = `
+                                <img src="${job.logo_url}" alt="${job.company} Logo">
+                                <h3>${job.title}</h3>
+                                <p class="company">${job.company}</p>
+                                
+                                <a href="/view_job/${job.id}" class="view-job-btn" target="_blank">View Job</a>
+                            `;
+                            floatingJobs.appendChild(jobCard);
+                        });
                     });
-
-                    document.getElementById("jobsModal").style.display = "block";
-                })
-                .catch(error => console.error("Error fetching jobs:", error));
+            }
         }
 
-        function closeJobs() {
-            document.getElementById("jobsModal").style.display = "none";
-        }
+        
         function toggleContact() {
             var contactSection = document.getElementById("contact");
             if (contactSection.classList.contains("show")) {
@@ -324,6 +385,8 @@
             }
         }
 
+        // Load jobs automatically when the page loads
+        document.addEventListener("DOMContentLoaded", openJobs);
     </script>
 
 </body>
