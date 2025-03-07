@@ -31,16 +31,30 @@
             padding: 1.5rem;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             transition: transform 0.2s ease;
+            position: relative;
         }
 
         .job-card:hover {
             transform: translateY(-2px);
         }
 
-        .job-id {
-            color: #6b7280;
-            font-size: 0.875rem;
-            margin-bottom: 0.5rem;
+        .company-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 1rem;
+        }
+
+        .company-logo {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+        }
+
+        .company-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
         }
 
         .job-title {
@@ -81,6 +95,7 @@
             font-weight: 500;
             transition: background-color 0.2s ease;
             width: 100%;
+            margin-top: 10px;
         }
 
         .apply-btn:hover {
@@ -103,6 +118,10 @@
     <div class="job-container">
         {% for job in jobs %}
         <div class="job-card">
+            <div class="company-info">
+                <img class="company-logo" src="{{ job.logo_url }}" alt="{{ job.company }} Logo">
+                <span class="company-name">{{ job.company }}</span>
+            </div>
             <h3 class="job-title">{{ job.title }}</h3>
             <p class="job-description">{{ job.description }}</p>
             <div class="skills-list">
@@ -110,68 +129,61 @@
                 <span class="skill-tag">{{ skill.strip() }}</span>
                 {% endfor %}
             </div>
-            <button class="apply-btn" onclick="applyJob('{{ job.title }}')">
+            <button class="apply-btn" onclick="applyJob('{{ job.id }}')">
                 Apply Now
             </button>
-            <hr>
-            <button class ="apply-btn" onclick="viewJob('{{ job.title }}')"> view job_details</button>
-
+            <form action="{{ url_for('view_job', job_id=job['id']) }}" method="GET" style="display: inline;">
+                <button type="submit" class="apply-btn">View Job</button>
+            </form>
         </div>
         {% endfor %}
-        
     </div>
-</div>
-<form method="GET" action="/success">
-    <button class="apply-btn"> back to profile</button>
-</form>
+
+    <form method="GET" action="/success">
+        <button class="apply-btn">Back to Profile</button>
+    </form>
+
     <script>
-         function viewJob(job_title)
-         {
-        const encodedJobTitle = encodeURIComponent(job_title);
-        const url = `/view_job/${encodedJobTitle}`;
-       fetch(url, {method: 'GET'})
-       window.location.href = url
-         }
-    function applyJob(job_title) {
-        if (!job_title) {
-            alert("Error: Invalid job title");
-            return;
-        }
-        
 
-        const button = event.target;
-        button.disabled = true;
-        button.textContent = 'Applying...';
-        button.style.backgroundColor = '#6ee7b7';
-
-        const encodedJobTitle = encodeURIComponent(job_title);
-        const url = `/apply_job/${encodedJobTitle}`;
-
-        fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        })
-        .then(response => {
-            if (!response.ok) {
-                return response.text().then(text => {
-                    throw new Error(`Application failed: ${text}`);
-                });
+        function applyJob(job_id) {
+            if (!job_id) {
+                alert("Error: Invalid job title");
+                return;
             }
-            return response.json();
-        })
-        .then(data => {
-            alert(data.message);
-            button.style.backgroundColor = '#10b981';
-            button.textContent = 'Applied!';
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert(error.message);
-            button.disabled = false;
-            button.textContent = 'Apply Now';
-            button.style.backgroundColor = '#10b981';
-        });
-    }
+
+            const button = event.target;
+            button.disabled = true;
+            button.textContent = 'Applying...';
+            button.style.backgroundColor = '#6ee7b7';
+
+            const encodedJobId = encodeURIComponent(job_id);
+            const url = `/apply_job/${encodedJobId}`;
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(`Application failed: ${text}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                alert(data.message);
+                button.style.backgroundColor = '#10b981';
+                button.textContent = 'Applied!';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert(error.message);
+                button.disabled = false;
+                button.textContent = 'Apply Now';
+                button.style.backgroundColor = '#10b981';
+            });
+        }
     </script>
 </body>
 </html>
