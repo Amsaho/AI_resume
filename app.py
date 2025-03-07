@@ -1195,6 +1195,16 @@ def send_rejection_email(user_email, job_title, company_name, logo_url):
         print("Rejection email sent successfully!")
     except Exception as e:
         print(f"Error sending rejection email: {e}")
+from datetime import datetime
+import pytz
+
+# Get the current time in IST
+ist_timezone = pytz.timezone('Asia/Kolkata')
+ist_time = datetime.now(ist_timezone)
+
+# Convert IST time to a string
+ist_time_str = ist_time.strftime('%I:%M %p %d-%m-%Y')
+
 @app.route("/apply_job/<int:job_id>", methods=["POST"])
 def apply_job(job_id):
     # Decode the job_title to handle spaces and special characters
@@ -1248,7 +1258,7 @@ def apply_job(job_id):
         "ats_score": user["ats_score"],
         "missing_skills": user["missing_skills"],
         "status": "pending",  # Initial status
-        "application_date": datetime.datetime.utcnow()
+        "application_date": ist_time_str
     }
     job_applications_collection.insert_one(application_data)
     collection.update_one(
