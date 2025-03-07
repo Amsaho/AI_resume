@@ -1074,26 +1074,41 @@ from urllib.parse import unquote
 def apply_job_user():
     jobs=get_jobs_from_db()
     return render_template("apply.html",jobs=jobs)
-def send_confirmation_email(user_email, job_title, company_name):
-    """Send a confirmation email to the user."""
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+
+def send_confirmation_email(user_email, job_title, company_name, logo_url):
+    """Send a confirmation email to the user with company logo and name."""
     subject = "Job Application Confirmation"
-    body = f"""
-    Dear Applicant,
-
-    Thank you for applying for the position of {job_title} at {company_name}. 
-    Your application has been successfully submitted.
-
-    Due to the high volume of applications, we will carefully review your profile and sincerely consider you for applicable roles.
-
-    Best regards,
-    The Hiring Team
+    
+    # HTML email body with company logo and name
+    html_body = f"""
+    <html>
+    <body>
+        <div style="text-align: center;">
+            <img src="{logo_url}" alt="{company_name} Logo" style="width: 100px; height: auto;">
+            <h2>{company_name}</h2>
+        </div>
+        <p>Dear Applicant,</p>
+        <p>Thank you for applying for the position of <strong>{job_title}</strong> at <strong>{company_name}</strong>.</p>
+        <p>Your application has been successfully submitted.</p>
+        <p>Due to the high volume of applications, we will carefully review your profile and sincerely consider you for applicable roles.</p>
+        <p>Best regards,</p>
+        <p>The Hiring Team</p>
+    </body>
+    </html>
     """
 
+    # Create the email
     msg = MIMEMultipart()
     msg['From'] = SMTP_EMAIL
     msg['To'] = user_email
     msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+    msg.attach(MIMEText(html_body, 'html'))  # Attach HTML content
 
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -1105,26 +1120,33 @@ def send_confirmation_email(user_email, job_title, company_name):
         print(f"Error sending email: {e}")
 
 
-def send_selection_email(user_email, job_title, company_name):
+def send_selection_email(user_email, job_title, company_name, logo_url):
     """Send an email to notify the user that their application has been accepted."""
     subject = "Congratulations! Your Application Has Been Accepted"
-    body = f"""
-    Dear Applicant,
-
-    We are pleased to inform you that your application for the position of {job_title} 
-    at {company_name} has been accepted. Congratulations!
-
-    Our team will contact you shortly to discuss the next steps in the hiring process.
-
-    Best regards,
-    The Hiring Team
+    
+    # HTML email body with company logo and name
+    html_body = f"""
+    <html>
+    <body>
+        <div style="text-align: center;">
+            <img src="{logo_url}" alt="{company_name} Logo" style="width: 100px; height: auto;">
+            <h2>{company_name}</h2>
+        </div>
+        <p>Dear Applicant,</p>
+        <p>We are pleased to inform you that your application for the position of <strong>{job_title}</strong> at <strong>{company_name}</strong> has been accepted. Congratulations!</p>
+        <p>Our team will contact you shortly to discuss the next steps in the hiring process.</p>
+        <p>Best regards,</p>
+        <p>The Hiring Team</p>
+    </body>
+    </html>
     """
 
+    # Create the email
     msg = MIMEMultipart()
     msg['From'] = SMTP_EMAIL
     msg['To'] = user_email
     msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+    msg.attach(MIMEText(html_body, 'html'))  # Attach HTML content
 
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -1136,28 +1158,34 @@ def send_selection_email(user_email, job_title, company_name):
         print(f"Error sending selection email: {e}")
 
 
-def send_rejection_email(user_email, job_title, company_name):
+def send_rejection_email(user_email, job_title, company_name, logo_url):
     """Send an email to notify the user that their application has been rejected."""
     subject = "Application Status Update"
-    body = f"""
-    Dear Applicant,
-
-    Thank you for applying for the position of {job_title} at {company_name}. 
-    After careful consideration, we regret to inform you that your application 
-    has not been selected for further processing.
-
-    We appreciate your interest in our organization and encourage you to apply 
-    for future opportunities that match your skills and experience.
-
-    Best regards,
-    The Hiring Team
+    
+    # HTML email body with company logo and name
+    html_body = f"""
+    <html>
+    <body>
+        <div style="text-align: center;">
+            <img src="{logo_url}" alt="{company_name} Logo" style="width: 100px; height: auto;">
+            <h2>{company_name}</h2>
+        </div>
+        <p>Dear Applicant,</p>
+        <p>Thank you for applying for the position of <strong>{job_title}</strong> at <strong>{company_name}</strong>.</p>
+        <p>After careful consideration, we regret to inform you that your application has not been selected for further processing.</p>
+        <p>We appreciate your interest in our organization and encourage you to apply for future opportunities that match your skills and experience.</p>
+        <p>Best regards,</p>
+        <p>The Hiring Team</p>
+    </body>
+    </html>
     """
 
+    # Create the email
     msg = MIMEMultipart()
     msg['From'] = SMTP_EMAIL
     msg['To'] = user_email
     msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+    msg.attach(MIMEText(html_body, 'html'))  # Attach HTML content
 
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -1167,9 +1195,6 @@ def send_rejection_email(user_email, job_title, company_name):
         print("Rejection email sent successfully!")
     except Exception as e:
         print(f"Error sending rejection email: {e}")
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 @app.route("/apply_job/<int:job_id>", methods=["POST"])
 def apply_job(job_id):
     # Decode the job_title to handle spaces and special characters
@@ -1187,14 +1212,14 @@ def apply_job(job_id):
     # Fetch the job details from the database using job_title
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT j.title, c.name FROM job_descriptions j JOIN companies c ON j.company_id = c.id WHERE j.id = ?", (job_id,))
+    cursor.execute("SELECT j.title, c.name ,c.logo_url FROM job_descriptions j JOIN companies c ON j.company_id = c.id WHERE j.id = ?", (job_id,))
     job = cursor.fetchone()
     conn.close()
 
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    job_title, company_name = job  # Extract job title and company name
+    job_title, company_name, logo_url = job  # Extract job title and company name
 
     # Check if the user has already applied for this job
     existing_application = job_applications_collection.find_one({
@@ -1216,7 +1241,8 @@ def apply_job(job_id):
     application_data = {
         "user_name": user_name,
         "job_title": job_title,
-        "company_name": company_name,  # Add company name to the application data
+        "company_name": company_name,
+        "logo_url":logo_url,  # Add company name to the application data
         "resume_pdf_id": resume_pdf_id,
         "resume_text": resume_text,
         "ats_score": user["ats_score"],
@@ -1232,7 +1258,7 @@ def apply_job(job_id):
 
     # Send confirmation email with job title and company name
     try:
-        send_confirmation_email(user['email'], job_title, company_name)
+        send_confirmation_email(user['email'], job_title, company_name,logo_url)
     except Exception as e:
         print(f"Failed to send confirmation email: {e}")
 
@@ -1265,7 +1291,8 @@ def update_application_status(application_id):
 
         user_name = application.get("user_name")
         job_title = application.get("job_title")
-        company_name = application.get("company_name")  # Fetch company name
+        company_name = application.get("company_name")
+        logo_url= application.get("logo_url") # Fetch company name
         if not user_name or not job_title or not company_name:
             return jsonify({"error": "User or job details not found in application"}), 404
 
@@ -1292,9 +1319,9 @@ def update_application_status(application_id):
 
         # Send email notification based on status
         if status == "accepted":
-            send_selection_email(user_email, job_title, company_name)
+            send_selection_email(user_email, job_title, company_name,logo_url)
         elif status == "rejected":
-            send_rejection_email(user_email, job_title, company_name)
+            send_rejection_email(user_email, job_title, company_name,logo_url)
 
         return jsonify({"message": f"Application status changed to {status}"})
 
