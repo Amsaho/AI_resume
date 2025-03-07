@@ -96,10 +96,15 @@ app.config['EDIT_UPLOAD_FOLDER'] = EDIT_UPLOAD_FOLDER
 def get_jobs_from_db():
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT title, description ,skills FROM job_descriptions")
-    jobs = [{"title": row[0], "description": row[1], "skills": row[2]} for row in cursor.fetchall()]
+    cursor.execute("""
+        SELECT j.id, j.title, j.description, j.skills, c.name, c.logo_url
+        FROM job_descriptions j
+        JOIN companies c ON j.company_id = c.id
+    """)
+    jobs = [{"id": row[0],"title": row[1], "description": row[2], "skills": row[3], "company": row[4], "logo_url": row[5]} for row in cursor.fetchall()]
     conn.close()
     return jobs
+
 @app.route("/")
 def index():
     jobs=get_jobs_from_db()
@@ -1069,89 +1074,13 @@ from urllib.parse import unquote
 def apply_job_user():
     jobs=get_jobs_from_db()
     return render_template("apply.html",jobs=jobs)
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-@app.route("/apply_job/<job_title>", methods=["POST"])
-def apply_job(job_title):
-    # Decode the job_title to handle spaces and special characters
-    job_title = unquote(job_title)
-    print(f"Job title received: {job_title}")
-
-    if 'user_name' not in session or session.get('user_role') != 'user':
-        return jsonify({"error": "User not logged in"}), 401
-
-    user_name = session['user_name']
-    user = collection.find_one({"user_name": user_name})
-
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-
-    # Fetch the job details from the database using job_title
-    conn = sqlite3.connect("jobs.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT title, description, skills FROM job_descriptions WHERE title = ?", (job_title,))
-    job = cursor.fetchone()
-    conn.close()
-
-    if not job:
-        return jsonify({"error": "Job not found"}), 404
-
-    job_title, job_description, job_skills = job
-
-    # Check if the user has already applied for this job
-    existing_application = job_applications_collection.find_one({
-        "user_name": user_name,
-        "job_title": job_title
-    })
-
-    if existing_application:
-        return jsonify({"error": "You have already applied for this job"}), 400
-
-    # Use the user's existing resume or generate a new one
-    if user.get('resume_pdf_id'):
-        resume_pdf_id = user['resume_pdf_id']
-        resume_text = user.get('upload_text', '')
-    else:
-        return jsonify({"error": "No resume found. Please upload resume first."}), 400
-
-    # Save the job application
-    application_data = {
-        "user_name": user_name,
-        "job_title": job_title,
-        "resume_pdf_id": resume_pdf_id,
-        "resume_text": resume_text,
-        "ats_score": user["ats_score"],
-        "missing_skills": user["missing_skills"],
-        "status": "pending",  # Initial status
-        "application_date": datetime.datetime.utcnow()
-    }
-    job_applications_collection.insert_one(application_data)
-    collection.update_one(
-        {"user_name": user_name},
-        {"$set": {"application_status": list(application_data)}}
-    )
-
-    # Send confirmation email
-    try:
-        send_confirmation_email(user['email'], job_title)
-    except Exception as e:
-        print(f"Failed to send confirmation email: {e}")
-
-    return jsonify({
-        "message": "Job application submitted successfully!",
-        "ats_score": user["ats_score"],
-        "missing_skills": user["missing_skills"],
-        "status": "pending"
-    })
-
-def send_confirmation_email(user_email, job_title):
+def send_confirmation_email(user_email, job_title, company_name):
     """Send a confirmation email to the user."""
     subject = "Job Application Confirmation"
     body = f"""
     Dear Applicant,
 
-    Thank you for applying for the position of {job_title}. 
+    Thank you for applying for the position of {job_title} at {company_name}. 
     Your application has been successfully submitted.
 
     Due to the high volume of applications, we will carefully review your profile and sincerely consider you for applicable roles.
@@ -1175,6 +1104,144 @@ def send_confirmation_email(user_email, job_title):
     except Exception as e:
         print(f"Error sending email: {e}")
 
+
+def send_selection_email(user_email, job_title, company_name):
+    """Send an email to notify the user that their application has been accepted."""
+    subject = "Congratulations! Your Application Has Been Accepted"
+    body = f"""
+    Dear Applicant,
+
+    We are pleased to inform you that your application for the position of {job_title} 
+    at {company_name} has been accepted. Congratulations!
+
+    Our team will contact you shortly to discuss the next steps in the hiring process.
+
+    Best regards,
+    The Hiring Team
+    """
+
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_EMAIL
+    msg['To'] = user_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Secure the connection
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
+        print("Selection email sent successfully!")
+    except Exception as e:
+        print(f"Error sending selection email: {e}")
+
+
+def send_rejection_email(user_email, job_title, company_name):
+    """Send an email to notify the user that their application has been rejected."""
+    subject = "Application Status Update"
+    body = f"""
+    Dear Applicant,
+
+    Thank you for applying for the position of {job_title} at {company_name}. 
+    After careful consideration, we regret to inform you that your application 
+    has not been selected for further processing.
+
+    We appreciate your interest in our organization and encourage you to apply 
+    for future opportunities that match your skills and experience.
+
+    Best regards,
+    The Hiring Team
+    """
+
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_EMAIL
+    msg['To'] = user_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Secure the connection
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
+        print("Rejection email sent successfully!")
+    except Exception as e:
+        print(f"Error sending rejection email: {e}")
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+@app.route("/apply_job/<int:job_id>", methods=["POST"])
+def apply_job(job_id):
+    # Decode the job_title to handle spaces and special characters
+    print(f"Job title received: {job_id}")
+
+    if 'user_name' not in session or session.get('user_role') != 'user':
+        return jsonify({"error": "User not logged in"}), 401
+
+    user_name = session['user_name']
+    user = collection.find_one({"user_name": user_name})
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Fetch the job details from the database using job_title
+    conn = sqlite3.connect("jobs.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT j.title, c.name FROM job_descriptions j JOIN companies c ON j.company_id = c.id WHERE j.id = ?", (job_id,))
+    job = cursor.fetchone()
+    conn.close()
+
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    job_title, company_name = job  # Extract job title and company name
+
+    # Check if the user has already applied for this job
+    existing_application = job_applications_collection.find_one({
+        "user_name": user_name,
+        "job_title": job_title
+    })
+
+    if existing_application:
+        return jsonify({"error": "You have already applied for this job"}), 400
+
+    # Use the user's existing resume or generate a new one
+    if user.get('resume_pdf_id'):
+        resume_pdf_id = user['resume_pdf_id']
+        resume_text = user.get('upload_text', '')
+    else:
+        return jsonify({"error": "No resume found. Please upload resume first."}), 400
+
+    # Save the job application
+    application_data = {
+        "user_name": user_name,
+        "job_title": job_title,
+        "company_name": company_name,  # Add company name to the application data
+        "resume_pdf_id": resume_pdf_id,
+        "resume_text": resume_text,
+        "ats_score": user["ats_score"],
+        "missing_skills": user["missing_skills"],
+        "status": "pending",  # Initial status
+        "application_date": datetime.datetime.utcnow()
+    }
+    job_applications_collection.insert_one(application_data)
+    collection.update_one(
+        {"user_name": user_name},
+        {"$set": {"application_status": list(application_data)}}
+    )
+
+    # Send confirmation email with job title and company name
+    try:
+        send_confirmation_email(user['email'], job_title, company_name)
+    except Exception as e:
+        print(f"Failed to send confirmation email: {e}")
+
+    return jsonify({
+        "message": "Job application submitted successfully!",
+        "ats_score": user["ats_score"],
+        "missing_skills": user["missing_skills"],
+        "status": "pending"
+    })
 @app.route("/update_application_status/<application_id>", methods=["POST"])
 def update_application_status(application_id):
     # Check if the admin is logged in
@@ -1191,14 +1258,15 @@ def update_application_status(application_id):
         return jsonify({"error": "Invalid status"}), 400
 
     try:
-        # Fetch the application to get the user_name and job_title
+        # Fetch the application to get the user_name, job_title, and company_name
         application = job_applications_collection.find_one({"_id": ObjectId(application_id)})
         if not application:
             return jsonify({"error": "Application not found"}), 404
 
         user_name = application.get("user_name")
         job_title = application.get("job_title")
-        if not user_name or not job_title:
+        company_name = application.get("company_name")  # Fetch company name
+        if not user_name or not job_title or not company_name:
             return jsonify({"error": "User or job details not found in application"}), 404
 
         # Fetch the user's email from the users collection
@@ -1224,77 +1292,15 @@ def update_application_status(application_id):
 
         # Send email notification based on status
         if status == "accepted":
-            send_selection_email(user_email, job_title)
+            send_selection_email(user_email, job_title, company_name)
         elif status == "rejected":
-            send_rejection_email(user_email, job_title)
+            send_rejection_email(user_email, job_title, company_name)
 
         return jsonify({"message": f"Application status changed to {status}"})
 
     except Exception as e:
         print(f"Error updating application status: {e}")
         return jsonify({"error": "An error occurred while updating the application status"}), 500
-
-def send_selection_email(user_email, job_title):
-    """Send an email to notify the user that their application has been accepted."""
-    subject = "Congratulations! Your Application Has Been Accepted"
-    body = f"""
-    Dear Applicant,
-
-    We are pleased to inform you that your application for the position of {job_title} 
-    has been accepted. Congratulations!
-
-    Our team will contact you shortly to discuss the next steps in the hiring process.
-
-    Best regards,
-    The Hiring Team
-    """
-
-    msg = MIMEMultipart()
-    msg['From'] = SMTP_EMAIL
-    msg['To'] = user_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
-
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()  # Secure the connection
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
-        print("Selection email sent successfully!")
-    except Exception as e:
-        print(f"Error sending selection email: {e}")
-
-def send_rejection_email(user_email, job_title):
-    """Send an email to notify the user that their application has been rejected."""
-    subject = "Application Status Update"
-    body = f"""
-    Dear Applicant,
-
-    Thank you for applying for the position of {job_title}. 
-    After careful consideration, we regret to inform you that your application 
-    has not been selected for further processing.
-
-    We appreciate your interest in our organization and encourage you to apply 
-    for future opportunities that match your skills and experience.
-
-    Best regards,
-    The Hiring Team
-    """
-
-    msg = MIMEMultipart()
-    msg['From'] = SMTP_EMAIL
-    msg['To'] = user_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
-
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()  # Secure the connection
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
-        print("Rejection email sent successfully!")
-    except Exception as e:
-        print(f"Error sending rejection email: {e}")
 @app.route("/delete_application/<application_id>", methods=["DELETE"])
 def admin_delete_application(application_id):
     application = job_applications_collection.find_one({
@@ -1321,46 +1327,154 @@ def view_applications():
     applications = list(job_applications_collection.find({}))
 
     return render_template("view_applications.html", applications=applications)
-@app.route("/view_job/<job_title>", methods=["GET"])
-def view_job(job_title):
-    job_title = unquote(job_title)
-    conn = sqlite3.connect("jobs.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM job_descriptions WHERE title = ?", (job_title,))
-    jobs = cursor.fetchone()
-    print(jobs)
-    return render_template("view_job.html",jobs=jobs)
-
-
-def update_job(job_id, title, description, skills, experience, projects, education, qualifications):
+@app.route("/view_job/<int:job_id>", methods=["GET"])
+def view_job(job_id):
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE job_descriptions
-        SET title = ?, description = ?, skills = ?, experience = ?, projects = ?, education = ?, qualifications = ?
-        WHERE id = ?
-    """, (title, description, skills, experience, projects, education, qualifications, job_id))
+    SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, 
+           c.name, c.logo_url, c.career_page_url 
+    FROM job_descriptions j 
+    JOIN companies c ON j.company_id = c.id 
+    WHERE j.id = ?
+    """, (job_id,))
+    job = cursor.fetchone()
+    conn.close()
+    
+    if job is None:
+        return "Job not found", 404
+    
+    job_data = {
+        "id": job[0],
+        "title": job[1],
+        "description": job[2],
+        "skills": job[3],
+        "experience": job[4],
+        "projects": job[5],
+        "education": job[6],
+        "qualifications": job[7],
+        "company": job[8],
+        "logo_url": job[9],
+        "career_page": job[10]
+    }
+    
+    return render_template("view_job.html", job=job_data)
+
+
+
+def get_db_connection():
+    conn = sqlite3.connect("jobs.db")
+    conn.row_factory = sqlite3.Row  # Return rows as dictionaries
+    return conn
+
+# Fetch all jobs with company details
+def fetch_jobs():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, c.name AS company_name
+        FROM job_descriptions j
+        JOIN companies c ON j.company_id = c.id
+    """)
+    jobs = cursor.fetchall()
+    conn.close()
+    return jobs
+
+# Fetch a single job by ID
+def fetch_job_by_id(job_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, j.company_id
+        FROM job_descriptions j
+        WHERE j.id = ?
+    """, (job_id,))
+    job = cursor.fetchone()
+    conn.close()
+    return job
+
+# Fetch all companies with full details
+def fetch_companies():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, logo_url, career_page_url FROM companies")
+    companies = cursor.fetchall()
+    conn.close()
+    return companies
+
+# Insert a new job
+def insert_job(title, description, skills, experience, projects, education, qualifications, company_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO job_descriptions (title, description, skills, experience, projects, education, qualifications, company_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (title, description, skills, experience, projects, education, qualifications, company_id))
     conn.commit()
     conn.close()
 
-def insert_job(title, description, skills, experience, projects, education, qualifications):
-    conn = sqlite3.connect("jobs.db")
+# Update an existing job
+def update_job(job_id, title, description, skills, experience, projects, education, qualifications, company_id):
+    conn = get_db_connection()
     cursor = conn.cursor()
-
-    # Insert the new job into the database
     cursor.execute("""
-        INSERT INTO job_descriptions (title, description, skills, experience, projects, education, qualifications)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (title, description, skills, experience, projects, education, qualifications))
+        UPDATE job_descriptions
+        SET title = ?, description = ?, skills = ?, experience = ?, projects = ?, education = ?, qualifications = ?, company_id = ?
+        WHERE id = ?
+    """, (title, description, skills, experience, projects, education, qualifications, company_id, job_id))
+    conn.commit()
+    conn.close()
 
-    conn.commit()  
-    conn.close()   
+# Delete a job
+def delete_job(job_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM job_descriptions WHERE id = ?", (job_id,))
+    conn.commit()
+    conn.close()
+
+# Insert a new company
+def insert_company(name, logo_url, career_page_url):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO companies (name, logo_url, career_page_url)
+            VALUES (?, ?, ?)
+        """, (name, logo_url, career_page_url))
+        conn.commit()
+        flash("Company added successfully!", "success")
+    except sqlite3.IntegrityError:
+        flash("Company name already exists!", "error")
+    finally:
+        conn.close()
+
+# Update an existing company
+def update_company(company_id, name, logo_url, career_page_url):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE companies
+            SET name = ?, logo_url = ?, career_page_url = ?
+            WHERE id = ?
+        """, (name, logo_url, career_page_url, company_id))
+        conn.commit()
+        flash("Company updated successfully!", "success")
+    except sqlite3.IntegrityError:
+        flash("Company name already exists!", "error")
+    finally:
+        conn.close()
+
+# Route to manage jobs (display and handle form submission)
 @app.route("/admin_jobs", methods=["GET", "POST"])
 def admin_jobs():
+    # Check if the user is logged in as an admin
     if 'admin_name' not in session or session.get('admin_role') != 'admin':
         return jsonify({"error": "Admin not logged in"}), 401
+
     if request.method == "POST":
-        # Handle job insertion or update
+        # Extract form data
         title = request.form.get("title")
         description = request.form.get("description")
         skills = request.form.get("skills")
@@ -1368,50 +1482,80 @@ def admin_jobs():
         projects = request.form.get("projects")
         education = request.form.get("education")
         qualifications = request.form.get("qualifications")
+        company_id = request.form.get("company_id")
         job_id = request.form.get("job_id")
 
         if job_id:  # Update existing job
-            update_job(job_id, title, description, skills, experience, projects, education, qualifications)
+            update_job(job_id, title, description, skills, experience, projects, education, qualifications, company_id)
             flash("Job updated successfully!", "success")
         else:  # Insert new job
-            insert_job(title, description, skills, experience, projects, education, qualifications)
+            insert_job(title, description, skills, experience, projects, education, qualifications, company_id)
             flash("Job added successfully!", "success")
 
         return redirect(url_for("admin_jobs"))
 
-    # Fetch all jobs for display
-    jobs = fetch_admin_jobs()
-    return render_template("admin_jobs.html", jobs=jobs)
-@app.route("/admin/jobs/delete/<int:job_id>", methods=["POST"])
-def delete_job(job_id):
-    conn = sqlite3.connect("jobs.db")
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM job_descriptions WHERE id = ?", (job_id,))
-    conn.commit()
-    conn.close()
-    flash("Job deleted successfully!", "success")
+    # Fetch all jobs and companies for display
+    jobs = fetch_jobs()
+    companies = fetch_companies()
+    return render_template("admin_jobs.html", jobs=jobs, companies=companies)
+
+# Route to add a new company
+@app.route("/add_company", methods=["POST"])
+def add_company():
+    # Check if the user is logged in as an admin
+    if 'admin_name' not in session or session.get('admin_role') != 'admin':
+        return jsonify({"error": "Admin not logged in"}), 401
+
+    # Extract form data
+    company_name = request.form.get("company_name")
+    logo_url = request.form.get("logo_url")
+    career_page_url = request.form.get("career_page_url")
+
+    # Insert the new company
+    insert_company(company_name, logo_url, career_page_url)
     return redirect(url_for("admin_jobs"))
+
+# Route to update a company
+@app.route("/update_company/<int:company_id>", methods=["POST"])
+def update_company_route(company_id):
+    # Check if the user is logged in as an admin
+    if 'admin_name' not in session or session.get('admin_role') != 'admin':
+        return jsonify({"error": "Admin not logged in"}), 401
+
+    # Extract form data
+    company_name = request.form.get("company_name")
+    logo_url = request.form.get("logo_url")
+    career_page_url = request.form.get("career_page_url")
+
+    # Update the company
+    update_company(company_id, company_name, logo_url, career_page_url)
+    return redirect(url_for("admin_jobs"))
+
+# Route to fetch a single job by ID (for editing)
 @app.route("/admin/jobs/<int:job_id>", methods=["GET"])
 def get_job(job_id):
     job = fetch_job_by_id(job_id)
     if job:
         return jsonify({
-            "id": job[0],
-            "title": job[1],
-            "description": job[2],
-            "skills": job[3],
-            "experience": job[4],
-            "projects": job[5],
-            "education": job[6],
-            "qualifications": job[7]
+            "id": job["id"],
+            "title": job["title"],
+            "description": job["description"],
+            "skills": job["skills"],
+            "experience": job["experience"],
+            "projects": job["projects"],
+            "education": job["education"],
+            "qualifications": job["qualifications"],
+            "company_id": job["company_id"]
         })
     return jsonify({"error": "Job not found"}), 404
-def fetch_job_by_id(job_id):
-    conn = sqlite3.connect("jobs.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM job_descriptions WHERE id = ?", (job_id,))
-    job = cursor.fetchone()
-    conn.close()
-    return job
+
+# Route to delete a job
+@app.route("/delete_jobs/<int:job_id>", methods=["POST"])
+def delete_jobs(job_id):
+    delete_job(job_id)
+    flash("Job deleted successfully!", "success")
+    return redirect(url_for("admin_jobs"))
+
 if __name__ == "__main__":
     app.run(debug=os.getenv('DEBUG', 'False') == 'True')
+
