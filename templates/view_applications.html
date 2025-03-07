@@ -139,6 +139,7 @@
                 <tr>
                     <th>User Name</th>
                     <th>Job Title</th>
+                    <th>Company Name</th>
                     <th>Submitted Date</th>
                     <th>Resume</th>
                     <th>ATS Score</th>
@@ -152,6 +153,7 @@
                 <tr>
                     <td>{{ application.user_name }}</td>
                     <td>{{ application.job_title }}</td>
+                    <td>{{application.company_name}}</td>
                     <td>{{application.application_date.strftime('%Y-%m-%d %H:%M:%S')}}</td>
                     <td>
                         <a href="{{ url_for('view_resume_upload', resume_pdf_id=application.resume_pdf_id) }}" 
