@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 import os
 load_dotenv()
-
+import face_recognition
 from flask import Flask, jsonify, request, render_template, redirect, url_for, session,send_file,send_from_directory,flash
 from bson import ObjectId
 import base64
@@ -27,9 +27,7 @@ import spacy
 nlp = spacy.load("en_core_web_sm")
 import re
 app = Flask(__name__)
-app.config['MONGO_URI'] = os.getenv('MONGO_URI')
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-app.config['DEBUG'] = os.getenv('DEBUG', default=False)
+
 from io import BytesIO
 from PIL import Image
 import base64
@@ -45,21 +43,25 @@ cloudinary.config(
     api_key=os.getenv('CLOUD_API_KEY'),
     api_secret=os.getenv('CLOUD_API_SECRET')
 )
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Session expires after 30 minutes
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30) 
 from pymongo import MongoClient
-client = MongoClient(os.getenv('MONGO_URI'))
+client = MongoClient(os.getenv("MONGO_URI"))
 @app.before_request
 def before_request():
     session.permanent = True  
 
 
 
-
+SMTP_EMAIL = os.getenv("SMTP_EMAIL")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+SMTP_SERVER = os.getenv("SMTP_SERVER")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 RESUME_UPLOAD_FOLDER = 'static/resume_uploads/'
 app.config['RESUME_UPLOAD_FOLDER'] = RESUME_UPLOAD_FOLDER
 
 # Ensure the directory exists
 os.makedirs(RESUME_UPLOAD_FOLDER, exist_ok=True)
+# db = client['face_recognition']
 db = client['face_recognition']
 collection = db['users'] 
 admin_collection=db["admins"]
@@ -68,11 +70,6 @@ fs = gridfs.GridFS(db)
 secret_key = os.urandom(24)
 print(secret_key)
 app.secret_key = secret_key
-
-SMTP_EMAIL = os.getenv("SMTP_EMAIL")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-SMTP_SERVER = os.getenv("SMTP_SERVER")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 
 REGISTRATION_UPLOAD_FOLDER = 'static/registration_uploads/'
 app.config['REGISTRATION_UPLOAD_FOLDER'] = REGISTRATION_UPLOAD_FOLDER
@@ -174,10 +171,6 @@ def admin_login():
     session['admin_name'] = admin['name']
     session['admin_role'] = 'admin'  # Add role for clarity
     return jsonify({"success": True, "name": admin['name']})
-
-@app.route("/admin_login", methods=['GET'])
-def admin_login_page():
-    return render_template("admin_login.html")
 
 
 @app.route("/admin")
@@ -301,17 +294,21 @@ def edit_user(user_id):
         branch = request.form.get("branch")
         registrationno = request.form.get("registrationno")
         bio = request.form.get("bio")
-        email=request.form.get("email")
+        email = request.form.get("email")
         photo = request.files.get('photo')
 
-        # Handle photo upload
-        try:
-            cloudinary_response = cloudinary.uploader.upload(photo)
-            photo_url = cloudinary_response['secure_url']
-            print("Cloudinary response:", cloudinary_response)
-        except Exception as e:
-            print("Cloudinary upload failed:", str(e))
-            return jsonify({"success": False, "error": "Failed to upload photo to Cloudinary"}), 500
+        # Initialize photo_url with the existing photo URL
+        photo_url = user['photo_url']
+
+        # Handle photo upload if a new photo is provided
+        if photo:
+            try:
+                cloudinary_response = cloudinary.uploader.upload(photo)
+                photo_url = cloudinary_response['secure_url']
+                print("Cloudinary response:", cloudinary_response)
+            except Exception as e:
+                print("Cloudinary upload failed:", str(e))
+                return jsonify({"success": False, "error": "Failed to upload photo to Cloudinary"}), 500
 
         # Validate and convert rollno and registrationno to integers
         try:
@@ -330,12 +327,13 @@ def edit_user(user_id):
                 "registration_no": registrationno,
                 "bio": bio,
                 "photo_url": photo_url,
-                "email":email,
+                "email": email,
                 "role": "user"
             }}
         )
 
         # Redirect to the admin dashboard after updating the user
+        flash("User details updated successfully!", "success")
         return redirect(url_for('admin'))
 
     # Render the edit user form with the user's current data
@@ -434,14 +432,21 @@ def fetch_admin_jobs():
     conn.close()
     return jobs
 # Fetch job descriptions from the database
+import sqlite3
+
 def fetch_jobs():
     """Fetches job descriptions and skills from the database."""
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT title, description, skills FROM job_descriptions")
-    jobs = cursor.fetchall()
+    cursor.execute("""
+        SELECT j.title, j.description, j.skills, c.name, c.logo_url
+        FROM job_descriptions j
+        JOIN companies c ON j.company_id = c.id
+    """)
+    jobs = [{"title": row[0], "description": row[1], "skills": row[2], "company": row[3], "logo_url": row[4]} for row in cursor.fetchall()]
     conn.close()
     return jobs
+
 
 SOFTWARE_SKILLS = {
     'python', 'java', 'javascript', 'c++', 'c#', 'php', 'ruby', 'swift', 'kotlin',
@@ -455,8 +460,9 @@ SOFTWARE_SKILLS = {
     'spring boot', '.net', 'laravel', 'rails', 'express.js', 'keras', 'ansible',
     'terraform', 'jenkins', 'golang', 'rust', 'elasticsearch', 'rabbitmq', 'kafka'
 }
+
 def extract_skills(text):
-    """Extracts software-related skills from text using NLP and predefined patterns"""
+    """Extracts software-related skills from text using NLP and predefined patterns."""
     doc = nlp(text.lower())  # Process text in lowercase for consistent matching
     skills = set()
 
@@ -465,20 +471,18 @@ def extract_skills(text):
         chunk_text = chunk.text.replace(' ', '_')  # Format multi-word phrases
         if chunk_text in SOFTWARE_SKILLS:
             skills.add(chunk_text.replace('_', ' '))
-    
+
     # Check individual tokens
     for token in doc:
-        # Consider nouns, proper nouns, and adjectives (which might be part of technical terms)
         if token.pos_ in ["NOUN", "PROPN", "ADJ"]:
-            # Check lemma form and text form
             lemma = token.lemma_.lower()
             if lemma in SOFTWARE_SKILLS or token.text.lower() in SOFTWARE_SKILLS:
                 skills.add(token.text.lower())
-    
+
     # Additional pattern matching for version numbers and special cases
     for match in re.finditer(r'\b(?:python|java|c\+\+|c#|\.net)\s*\d*\.?\d+\b', text.lower()):
         skills.add(match.group().strip())
-    
+
     # Handle common variations
     variations_map = {
         'js': 'javascript',
@@ -489,17 +493,15 @@ def extract_skills(text):
         'ml': 'machine learning',
         'ai': 'artificial intelligence',
         'aws cloud': 'aws',
-        "sql":"mysql"
+        "sql": "mysql"
     }
-    
+
     for variation, standard in variations_map.items():
         if variation in skills:
             skills.remove(variation)
             skills.add(standard)
-    
-    return skills
-# Extract skills from job descriptions
 
+    return skills
 
 def calculate_ats_score(resume_text, job_description, resume_skills, job_skills):
     """Calculates ATS score using text similarity and skill matching."""
@@ -517,39 +519,33 @@ def calculate_ats_score(resume_text, job_description, resume_skills, job_skills)
 
     # Calculate overall ATS score
     ats_score = round((similarity_score * 0.7) + (skill_match_score * 0.3), 2)
-    return ats_score, list(job_skills_set - matched_skills)  # Convert missing_skills back to list
-
-# Recommend jobs based on ATS score
+    return ats_score, list(job_skills_set - matched_skills)
 def recommend_jobs(resume_text, resume_skills):
-    """Fetches job descriptions and recommends the best jobs."""
     jobs = fetch_jobs()
     job_scores = []
 
-    for title, description, skills in jobs:
+    for job in jobs:
+        title, description, skills = job["title"], job["description"], job["skills"]
         job_skills = set(skills.lower().split(", "))  # Convert stored skills into a set
         ats_score, missing_skills = calculate_ats_score(resume_text, description, resume_skills, job_skills)
         job_scores.append({
             "title": title,
             "ats_score": ats_score,
-            "missing_skills": missing_skills,
-            "description": description,  # Include description if needed
-            "skills": job_skills  # Include job_skills if needed
+            "missing_skills": missing_skills
         })
 
-    job_scores.sort(key=lambda x: x['ats_score'], reverse=True)  # Sort by ATS score (highest first)
+    # Debugging: Print the job scores to see their values
     
-    if not job_scores:
-        return [{"title": "No suitable jobs found", "ats_score": 0, "missing_skills": [], "description": "", "skills": set()}]  # Handle empty recommendations
 
-    return job_scores[:3]  # Return top 3 job recommendations
-# Return top 3 job recommendations
+    # Ensure ATS score is numeric and sort jobs by score in descending order
+    job_scores.sort(key=lambda x: x['ats_score'], reverse=True)
 
+    # Debugging: Print the sorted job scores
 
-# Extract text from uploaded PDF
-import PyPDF2
-from io import BytesIO
-
+    # Return top 3 jobs based on ATS score
+    return job_scores[:3]
 def extract_text_from_pdf(pdf_input):
+    """Extract text from PDF."""
     text = ""
     try:
         if isinstance(pdf_input, BytesIO):
@@ -564,10 +560,9 @@ def extract_text_from_pdf(pdf_input):
     except Exception as e:
         print(f"Error extracting text from PDF: {e}")
         return ""
-    
-    return text.strip()# Remove leading/trailing spaces # Remove leading/trailing spaces
+    return text.strip()
 
-
+# Flask Routes
 @app.route('/download_pdf/<filename>')
 def download_pdf(filename):
     return send_from_directory(app.config['GENERATED_UPLOAD_FOLDER'], filename, as_attachment=True, mimetype='application/pdf')
@@ -576,78 +571,85 @@ def allowed_file(filename):
     ALLOWED_EXTENSIONS = {'pdf'}
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
 @app.route("/upload_resume", methods=["POST"])
 def upload_resume():
     if 'user_name' not in session or session.get('user_role') != 'user':
-        return jsonify({"error": "User not logged in"}), 401
+        return jsonify({"success": False, "error": "User not logged in"}), 401
 
     user_name = session['user_name']
     file = request.files.get('resume')
-    
+
     if not file or file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
+        return jsonify({"success": False, "error": "No file selected"}), 400
+
     if not allowed_file(file.filename):
-        return jsonify({"error": "Invalid file type. Only PDF allowed."}), 400
+        return jsonify({"success": False, "error": "Invalid file type. Only PDF allowed."}), 400
 
-    # Read the file content first
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
     file_content = file.read()
-    
-    # Check if file is empty
-    if not file_content:
-        return jsonify({"error": "Uploaded file is empty"}), 400
-    
-    # Save to GridFS
-    file.seek(0)  # Reset pointer before saving
-    file_id = fs.put(file, filename=file.filename, content_type="application/pdf")
+    if len(file_content) > MAX_FILE_SIZE:
+        return jsonify({"success": False, "error": "File size exceeds 5MB limit"}), 400
 
-    # Read again for text extraction
-    file_stream = BytesIO(file_content)
-    resume_text = extract_text_from_pdf(file_stream)
-    
-    resume_skills = list(extract_skills(resume_text)) if resume_text else []
-    
-    job_recommendations = recommend_jobs(resume_text, resume_skills) if resume_text else []
-    ats_score, missing_skills = ("N/A", [])
-    
-    if job_recommendations:
-        ats_score, missing_skills = calculate_ats_score(
-            resume_text, job_recommendations[0]['description'], resume_skills, job_recommendations[0]['skills']
-        )
-        missing_skills = list(missing_skills)
-    
-    for job in job_recommendations:
-        job['skills'] = list(job.get('skills', []))  # Convert skills to list
-        job['missing_skills'] = list(job.get('missing_skills', [])) 
-    
-    # Prepare user resume data
-    user_resume_data = {
-        "resume_pdf_id": file_id,  # Save the GridFS file ID
-        "upload_text": resume_text,
-        "extracted_skills": resume_skills,
-        "ats_score": ats_score,
-        "missing_skills": missing_skills,
-        "job_recommendations": job_recommendations,
-        "upload_date": datetime.datetime.utcnow()
-    }
-     
-    
+    if not file_content:
+        return jsonify({"success": False, "error": "Uploaded file is empty"}), 400
+
     try:
-        # Update the user's document in the database
-        collection.update_one({"user_name": user_name}, {"$set": user_resume_data}, upsert=True)
+        file.seek(0)  # Reset file pointer to beginning before storing
+        file_id = fs.put(file, filename=secure_filename(file.filename), content_type="application/pdf")
+        print(f"File uploaded successfully with ID: {file_id}")  # Log file ID for debugging
+
+        file_stream = BytesIO(file_content)
+        resume_text = extract_text_from_pdf(file_stream)
+        if not resume_text:
+            return jsonify({"success": False, "error": "Failed to extract text from the resume"}), 400
+
+        resume_skills = list(extract_skills(resume_text))
         
+
+        job_recommendations = recommend_jobs(resume_text, resume_skills)
+        ats_score, missing_skills = ("N/A", [])
+        print("ats_score:",ats_score)
+        print("missing_skill:",missing_skills)
+
+        if job_recommendations and len(job_recommendations) > 0:
+            job = job_recommendations[0]
+            print(job)
+            ats_score, missing_skills =job["ats_score"],job["missing_skills"]
+        print("ats_score:",ats_score)
+        print("missing_skill:",missing_skills)
+
+        user_resume_data = {
+            "resume_pdf_id": file_id,
+            "upload_text": resume_text,
+            "extracted_skills": resume_skills,
+            "ats_score": ats_score,
+            "missing_skills": missing_skills,
+            "job_recommendations": job_recommendations,
+            "upload_date": datetime.now().isoformat()
+        }
+
+        print(f"Updating user resume data for {user_name}")  # Log user data update attempt
+        collection.update_one(
+            {"user_name": user_name},
+            {"$set": user_resume_data},
+            upsert=True
+        )
+
         return jsonify({
+            "success": True,
             "message": "Resume uploaded successfully!",
             "resume_text": resume_text,
             "ats_score": ats_score,
             "missing_skills": missing_skills,
             "job_recommendations": job_recommendations,
-            "download_url":url_for('download_resume', pdf_id=str(file_id), _external=True),
+            "download_url": url_for('download_resume', pdf_id=str(file_id), _external=True),
             "profile_url": url_for('view_profile', _external=True)
         })
+
     except Exception as e:
-        print(f"MongoDB Error: {e}")
-        return jsonify({"error": "An error occurred while saving the resume."}), 500
+        print(f"Unexpected error: {e}")
+        return jsonify({"success": False, "error": f"An error occurred while processing the resume: {str(e)}"}), 500
+
 import time
 def upload_to_cloudinary(image_data, retries=3, delay=2):
     for attempt in range(retries):
@@ -699,56 +701,60 @@ def submit():
         ]
         doc.build(story)
 
-        # Upload PDF to Cloudinary
-        with open(pdf_path, "rb") as pdf_file:
-            pdf_response = cloudinary.uploader.upload(pdf_file, resource_type="raw")
-            pdf_url = pdf_response['secure_url']
+        # Debug: Verify PDF file exists and is not empty
+        if os.path.exists(pdf_path):
+            print(f"PDF file created at: {pdf_path}")
+            print(f"File size: {os.path.getsize(pdf_path)} bytes")
+        else:
+            print("PDF file not created!")
+            return jsonify({"error": "Failed to generate PDF."}), 500
 
         # Extract text from PDF
         with open(pdf_path, "rb") as pdf_file:
             pdf_bytes_io = BytesIO(pdf_file.read())  # Convert file to BytesIO
         resume_text = extract_text_from_pdf(pdf_bytes_io)
         resume_skills = list(data['skills']) if 'skills' in data else []
-        job_recommendations = recommend_jobs(resume_text, resume_skills) if resume_text else []
+
+        job_recommendations = recommend_jobs(resume_text, resume_skills)
         ats_score, missing_skills = ("N/A", [])
 
-        if job_recommendations:
-            ats_score, missing_skills = calculate_ats_score(
-                resume_text, job_recommendations[0]['description'], resume_skills, job_recommendations[0]['skills']
-            )
-            missing_skills = list(missing_skills)
-        for job in job_recommendations:
-           job['skills'] = list(job.get('skills', []))  # Convert skills to list
-           job['missing_skills'] = list(job.get('missing_skills', []))
-
-        # Prepare user data
-        user_data = {
-            "name": data['name'],
-            "email": data['email'],
-            "phone": data['phone'],
-            "skills": list(resume_skills),
-            "summary": data['summary'],
-            "experience": data['experience'],
-            "education": data['education'],
-            "resume_url": pdf_url,
-            "photo_url": photo_url,
-            "resume_text": resume_text,
-            "ats_score": ats_score,
-            "missing_skills": list(missing_skills),
-            "generated_job_recommendations": job_recommendations,
-            "upload_date": datetime.datetime.utcnow()
-        }
+        if job_recommendations and len(job_recommendations) > 0:
+            job = job_recommendations[0]
+            print(job)
+            ats_score, missing_skills = job["ats_score"], job["missing_skills"]
+        print("ats_score:", ats_score)
+        print("missing_skill:", missing_skills)
 
         # Update user data in MongoDB
         try:
-            collection.update_one({"name": user_name}, {"$set": user_data}, upsert=True)
+            user=collection.find_one({"user_name":user_name})
+            collection.update_one(
+                {"user_name": user_name},
+                {"$set": {
+                    "name": data['name'],
+                    "email": data['email'],
+                    "phone": data['phone'],
+                    "skills": list(resume_skills),
+                    "summary": data['summary'],
+                    "experience": data['experience'],
+                    "education": data['education'],
+                    "resume_path": pdf_path,  # Save the local file path
+                    "photo_url": photo_url,
+                    "resume_text": resume_text,
+                    "ats_score": ats_score,
+                    "missing_skills": list(missing_skills),
+                    "generated_job_recommendations": job_recommendations,
+                    "upload_date": ist_time_str
+                }},
+                upsert=True
+            )
             return jsonify({
                 "message": "Resume generated successfully!",
                 "resume_text": resume_text,
                 "ats_score": ats_score,
                 "missing_skills": missing_skills,
                 "job_recommendations": job_recommendations,
-                "download_url": pdf_url,
+                "download_url": url_for('Generate_download_resume', user_id=user["_id"], _external=True),  # Generate download URL
                 "profile_url": url_for('view_profile', _external=True)
             })
         except Exception as e:
@@ -758,6 +764,31 @@ def submit():
     except Exception as e:
         print(f"Unexpected error: {e}")
         return jsonify({"error": "An unexpected error occurred."}), 500
+from flask import send_file
+
+@app.route('/Generate_download_resume/<user_id>')
+def Generate_download_resume(user_id):
+    """
+    Serves the PDF file directly from the server.
+    """
+    try:
+        # Fetch the user's resume path from the database
+        user = collection.find_one({"_id": ObjectId(user_id)})
+        if not user or "resume_path" not in user:
+            return jsonify({"error": "Resume not found"}), 404
+
+        pdf_path = user["resume_path"]
+
+        # Serve the file for download
+        return send_file(
+            pdf_path,
+            as_attachment=True,
+            download_name=f"resume_{user['name']}.pdf",
+            mimetype="application/pdf"
+        )
+    except Exception as e:
+        print(f"Error serving file: {e}")
+        return jsonify({"error": "Failed to download resume"}), 500
 @app.route('/download_resume/<pdf_id>')
 def download_resume(pdf_id):
     """Serves the resume file from GridFS."""
@@ -775,7 +806,6 @@ def download_resume(pdf_id):
     except Exception as e:
         print(f"Error serving file: {e}")
         return jsonify({"error": "File not found"}), 404
-
 @app.route('/view_resume/<user_id>')  # Example route
 def view_resume(user_id):
     user = collection.find_one({"_id": ObjectId(user_id)})
@@ -784,7 +814,8 @@ def view_resume(user_id):
 def view_resume_upload(resume_pdf_id):
     user = collection.find_one({"resume_pdf_id": ObjectId(resume_pdf_id)})
     return render_template('view_resume.html', user=user)
-@app.route('/resume_delete', methods=['POST'])
+
+@app.route("/resume_delete", methods=["POST"])
 def resume_delete():
     if 'user_name' not in session:
         return jsonify({"error": "User not logged in"}), 401
@@ -796,25 +827,33 @@ def resume_delete():
         return jsonify({"error": "User not found"}), 404
 
     try:
-        # 1. Delete from GridFS
-        if user.get('resume_pdf_id'):  # Check if a resume exists
+        # 1. Delete from GridFS (if applicable)
+        if user.get('resume_pdf_id'):
             fs.delete(ObjectId(user['resume_pdf_id']))
 
         # 2. Update user record in MongoDB
         collection.update_one(
-            {"name": user_name},
-            {"$unset": {"resume_pdf_id": "", "extracted_skills": "", "ats_score": "", "missing_skills": "", "job_recommendations": ""}} # Clear all resume related information
+            {"user_name": user_name},
+            {"$unset": {
+                "resume_pdf_id": "",
+                "upload_text": "",
+                "extracted_skills": "",
+                "ats_score": "",
+                "missing_skills": "",
+                "job_recommendations": ""
+            }}
         )
 
-        return redirect(url_for('success'))  # Redirect back to the success page
+        flash("Resume deleted successfully!", "success")
+        return redirect(url_for('success'))  # Redirect to the success page
 
     except Exception as e:
         print(f"Error deleting resume: {e}")
-        return jsonify({"error": "An error occurred while deleting the resume."}), 500
-@app.route('/view_profile')
-def view_profile():
-    # Check if the session is for a user
-    if 'user_name' not in session or session.get('user_role') != 'user':
+        flash("An error occurred while deleting the resume.", "error")
+        return redirect(url_for('success'))
+@app.route("/Generated_resume_delete", methods=["POST"])
+def Generated_resume_delete():
+    if 'user_name' not in session:
         return jsonify({"error": "User not logged in"}), 401
 
     user_name = session['user_name']
@@ -823,7 +862,36 @@ def view_profile():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    return render_template('success.html', user=user)
+    try:
+
+        collection.update_one(
+            {"user_name": user_name},
+            {"$unset": {
+                "email": "",
+                    "phone": "",
+                    "skills": "",
+                    "summary": "",
+                    "experience": "",
+                    "education": "",
+                    "resume_path":"", 
+                    "resume_text": "",
+                    "ats_score": "",
+                    "missing_skills": "",
+                    "generated_job_recommendations": ""
+            }}
+        )
+
+        flash("Resume deleted successfully!", "success")
+        return redirect(url_for('success'))  # Redirect to the success page
+
+    except Exception as e:
+        print(f"Error deleting resume: {e}")
+        flash("An error occurred while deleting the resume.", "error")
+        return redirect(url_for('success'))
+@app.route('/view_profile')
+def view_profile():
+    # Check if the session is for a user
+    return redirect('success')
 @app.route('/admin_view_profile/<user_id>')
 def admin_view_profile(user_id):
     # Check if the session is for a user
@@ -888,26 +956,25 @@ def update_resume():
             pdf_bytes_io = BytesIO(pdf_file.read())  
         resume_text = extract_text_from_pdf(pdf_bytes_io)
         resume_skills = data.get('skills', [])
-        job_recommendations = recommend_jobs(resume_text, resume_skills) if resume_text else []
-
+        job_recommendations = recommend_jobs(resume_text, resume_skills)
         ats_score, missing_skills = ("N/A", [])
-        if job_recommendations:
-            ats_score, missing_skills = calculate_ats_score(
-                resume_text, job_recommendations[0]["description"], resume_skills, job_recommendations[0]["skills"]
-            )
-            missing_skills = list(missing_skills)
-        for job in job_recommendations:
-           job['skills'] = list(job.get('skills', []))  # Convert skills to list
-           job['missing_skills'] = list(job.get('missing_skills', []))
+
+        if job_recommendations and len(job_recommendations) > 0:
+            job = job_recommendations[0]
+            print(job)
+            ats_score, missing_skills =job["ats_score"],job["missing_skills"]
+        print("ats_score:",ats_score)
+        print("missing_skill:",missing_skills)
 
         updated_resume_data = {
-            "resume_url": pdf_url,  # Use Cloudinary URL
+            "resume_url": pdf_url,
+            "pdf_path":pdf_path,  # Use Cloudinary URL
             "resume_text": resume_text,
             "extracted_skills": list(resume_skills),
             "ats_score": ats_score,
             "missing_skills": list(missing_skills),
             "job_recommendations": job_recommendations,
-            "upload_date": datetime.datetime.utcnow(),
+            "upload_date": datetime.now().isoformat(),
             "photo_url": photo_url,
             "name": data.get('name'),
             "email": data.get('email'),
@@ -918,7 +985,7 @@ def update_resume():
         }
 
         try:
-            collection.update_one({"name": user_name}, {"$set": updated_resume_data})
+            collection.update_one({"user_name": user_name}, {"$set": updated_resume_data})
             return jsonify({
                 "message": "Resume updated successfully!",
                 "resume_text": resume_text,
@@ -983,20 +1050,20 @@ def admin_update_resume(user_id):
             pdf_bytes_io = BytesIO(pdf_file.read())
     resume_text = extract_text_from_pdf(pdf_bytes_io)
     resume_skills = data.get('skills', [])
-    job_recommendations = recommend_jobs(resume_text, resume_skills) if resume_text else []
-
+    job_recommendations = recommend_jobs(resume_text, resume_skills)
     ats_score, missing_skills = ("N/A", [])
-    if job_recommendations:
-        ats_score, missing_skills = calculate_ats_score(
-            resume_text, job_recommendations[0]["description"], resume_skills, job_recommendations[0]["skills"]
-        )
-        missing_skills = list(missing_skills)
-    for job in job_recommendations:
-           job['skills'] = list(job.get('skills', []))  # Convert skills to list
-           job['missing_skills'] = list(job.get('missing_skills', []))
+
+    if job_recommendations and len(job_recommendations) > 0:
+            job = job_recommendations[0]
+            print(job)
+            ats_score, missing_skills =job["ats_score"],job["missing_skills"]
+    print("ats_score:",ats_score)
+    print("missing_skill:",missing_skills)
+    
 
     updated_resume_data = {
-        "resume_url": pdf_url,  # Use Cloudinary URL
+        "resume_url": pdf_url,
+        "pdf_path":pdf_path,  # Use Cloudinary URL
         "resume_text": resume_text,
         "extracted_skills": list(resume_skills),
         "ats_score": ats_score,
@@ -1026,7 +1093,7 @@ def admin_update_resume(user_id):
     except Exception as e:
         print(f"MongoDB Error: {e}")
         return jsonify({"error": "An error occurred while updating the resume."}), 500
-@app.route('/download_resume/<pdf_url>')
+@app.route('/download_resume/<path:pdf_url>')
 def generate_download_resume(pdf_url):
     """Serves the resume file from Cloudinary."""
     try:
@@ -1035,11 +1102,8 @@ def generate_download_resume(pdf_url):
         if not response:
             return jsonify({"error": "File not found in Cloudinary"}), 404
         
-        # Get the secure URL of the file
-        file_url = response['secure_url']
-        
-        # Redirect to the file URL for download
-        return redirect(file_url)
+        # Redirect to the secure URL for download
+        return redirect(response['secure_url'])
     
     except CloudinaryError as e:
         print(f"Cloudinary Error: {e}")
@@ -1195,6 +1259,7 @@ def send_rejection_email(user_email, job_title, company_name, logo_url):
         print("Rejection email sent successfully!")
     except Exception as e:
         print(f"Error sending rejection email: {e}")
+
 from datetime import datetime
 import pytz
 
@@ -1338,6 +1403,15 @@ def update_application_status(application_id):
     except Exception as e:
         print(f"Error updating application status: {e}")
         return jsonify({"error": "An error occurred while updating the application status"}), 500
+@app.route("/view_applications", methods=["GET"])
+def view_applications():
+    if 'admin_name' not in session or session.get('admin_role') != 'admin':
+        return jsonify({"error": "Admin not logged in"}), 401
+
+    # Fetch all job applications
+    applications = list(job_applications_collection.find({}))
+
+    return render_template("view_applications.html", applications=applications)
 @app.route("/delete_application/<application_id>", methods=["DELETE"])
 def admin_delete_application(application_id):
     application = job_applications_collection.find_one({
@@ -1355,15 +1429,6 @@ def user_delete_application():
     user_name = session['user_name']
     job_applications_collection.delete_one({"user_name":user_name})
     return jsonify({"message": "your job application successfully deleted"})
-@app.route("/view_applications", methods=["GET"])
-def view_applications():
-    if 'admin_name' not in session or session.get('admin_role') != 'admin':
-        return jsonify({"error": "Admin not logged in"}), 401
-
-    # Fetch all job applications
-    applications = list(job_applications_collection.find({}))
-
-    return render_template("view_applications.html", applications=applications)
 @app.route("/view_job/<int:job_id>", methods=["GET"])
 def view_job(job_id):
     conn = sqlite3.connect("jobs.db")
@@ -1396,8 +1461,6 @@ def view_job(job_id):
     }
     
     return render_template("view_job.html", job=job_data)
-
-
 
 def get_db_connection():
     conn = sqlite3.connect("jobs.db")
@@ -1593,6 +1656,60 @@ def delete_jobs(job_id):
     flash("Job deleted successfully!", "success")
     return redirect(url_for("admin_jobs"))
 
+load_dotenv()
+google_api_key = os.getenv("GOOGLE_API_KEY")
+import google.generativeai as genai
+genai.configure(api_key=google_api_key)
+
+# List all available models (for debugging)
+models = genai.list_models()
+
+
+# Initialize the Gemini model
+model = genai.GenerativeModel('gemini-1.5-pro')  # Use the correct model name
+
+# Chatbot route
+@app.route("/chatbot", methods=["GET", "POST"])
+def chatbot_interaction():
+    if request.method == "POST":
+        user_input = request.json.get("message")
+        if not user_input:
+            return jsonify({"error": "No message provided"}), 400
+
+        # Predefined responses for application-related queries
+        if "resume" in user_input.lower():
+            chatbot_response = "You can upload your resume by visiting the 'Resume' section. Here's the link: <a href='/resume'>Upload Resume</a>."
+        elif "apply" in user_input.lower() or "job" in user_input.lower():
+            chatbot_response = "You can apply for jobs by visiting the 'Apply Job' section. Here's the link: <a href='/apply_job_user'>Apply for Jobs</a>."
+        elif "status" in user_input.lower() or "application" in user_input.lower():
+            chatbot_response = "You can check your application status by visiting the 'Success' section. Here's the link: <a href='/success'>Check Application Status</a>."
+        elif "admin" in user_input.lower():
+            chatbot_response = "Admin-related queries can be addressed by logging in as an admin. Here's the link: <a href='/admin_login'>Admin Login</a>."
+        elif "help" in user_input.lower():
+            chatbot_response = "Here are some helpful links:<br>"
+            chatbot_response += "<a href='/resume'>Upload Resume</a><br>"
+            chatbot_response += "<a href='/apply_job_user'>Apply for Jobs</a><br>"
+            chatbot_response += "<a href='/success'>Check Application Status</a><br>"
+            chatbot_response += "<a href='/admin_login'>Admin Login</a><br>"
+        else:
+            # Use Google Gemini for general queries
+            try:
+                response = model.generate_content(
+                    f"You are a helpful assistant that provides information about job applications, resumes, and career advice. If the question is unrelated to these topics, politely inform the user. User: {user_input}"
+                )
+                chatbot_response = response.text
+
+                # If the response indicates the question is unrelated, provide a polite message
+                if "unrelated" in chatbot_response.lower() or "not sure" in chatbot_response.lower():
+                    chatbot_response = "I'm here to help with job applications, resumes, and career advice. If you have questions outside these topics, please contact support or visit our help center."
+
+            except Exception as e:
+                print(f"Error calling Google Gemini API: {e}")
+                chatbot_response = "Sorry, I'm unable to process your request at the moment. Please try again later."
+
+        return jsonify({"response": chatbot_response})
+
+    return render_template("chatbot.html")
+
 if __name__ == "__main__":
     app.run(debug=os.getenv('DEBUG', 'False') == 'True')
-
