@@ -230,7 +230,7 @@
             {%if  user.resume_pdf_id%}
             <a href="{{ url_for('download_resume', pdf_id=user.resume_pdf_id) }}" target="_blank" class="download-link">Download uploaded Resume</a>
             {% else %}
-            <a href="{{ url_for('download_resume', pdf_url=user.resume_url) }}" download>Download generated Resume</a>
+            <a href="{{ user.resume_url }}" download>Download generated Resume</a>
             {% endif %}
         </div>
 
