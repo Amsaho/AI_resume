@@ -146,6 +146,9 @@ def admin_register():
     session['admin_role'] = 'admin'
 
     return jsonify({"success": True, "message": "Admin registration successful"})
+@app.route("/admin_login", methods=['GET'])
+def admin_login_page():
+    return render_template("admin_login.html")
 @app.route("/admin_login", methods=["POST"])
 def admin_login():
     
