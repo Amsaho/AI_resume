@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
 import os
 load_dotenv()
-import face_recognition
 from flask import Flask, jsonify, request, render_template, redirect, url_for, session,send_file,send_from_directory,flash
 from bson import ObjectId
 import base64
