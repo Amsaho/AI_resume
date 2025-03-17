@@ -68,7 +68,7 @@ flow = Flow.from_client_config(
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "redirect_uris": [GOOGLE_REDIRECT_URI],
-            "javascript_origins": ["http://127.0.0.1:5000"]
+            "javascript_origins": ["https://ai-resume-5.onrender.com"]
         }
     },
     scopes=["openid", "https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"],
