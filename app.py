@@ -208,70 +208,11 @@ def admin_login():
     session['admin_role'] = 'admin'  # Add role for clarity
     return jsonify({"success": True, "name": admin['name']})
 
-import requests
-@app.route("/admin_login_face_get", methods=["GET"])
-def admin_login_face_get():
-    return render_template("admin_login_face.html")
 
-@app.route("/admin_login_face", methods=["POST"])
-def admin_login_face():
-    name = request.form.get("name")
-    password = request.form.get("password")
-    photo = request.files['photo']
-    
-    # Validate input
-    if not name or not password or not photo:
-        return jsonify({"success": False, "error": "Invalid data"}), 400
-    
-    # Save the login photo to the static/uploads directory
-    filename = secure_filename(photo.filename)
-    login_photo_path = os.path.join(app.config['ADMIN_LOGIN_UPLOAD_FOLDER'], filename)
-    photo.save(login_photo_path)
 
-    # Load and encode the login photo
-    login_image = face_recognition.load_image_file(login_photo_path)
-    login_face_encodings = face_recognition.face_encodings(login_image)
-    if len(login_face_encodings) == 0:
-        return jsonify({"success": False, "error": "No face found in the login image"})
-    
-    login_face_encoding = login_face_encodings[0]
-
-    # Iterate through all admins in the database
-    for admin in admin_collection.find({"role": "admin"}):
-        # Fetch the admin's photo URL from Cloudinary
-        photo_url = admin['photo_url']
-        
-        # Download the image from Cloudinary
-        response = requests.get(photo_url)
-        if response.status_code != 200:
-            return jsonify({"success": False, "error": "Failed to fetch admin photo from Cloudinary"})
-        
-        # Load the image into memory
-        registered_image = Image.open(BytesIO(response.content))
-        registered_image = np.array(registered_image)  # Convert to numpy array for face_recognition
-
-        # Encode the registered admin's face
-        registered_face_encodings = face_recognition.face_encodings(registered_image)
-        if len(registered_face_encodings) == 0:
-            continue  # Skip if no face is found in the registered image
-
-        registered_face_encoding = registered_face_encodings[0]
-
-        # Compare faces
-        matches = face_recognition.compare_faces([registered_face_encoding], login_face_encoding)
-        print("Face matches:", matches)
-        print("Password matches:", check_password_hash(admin['password'], password))
-
-        if any(matches):
-            # Check if the password matches using check_password_hash
-            if check_password_hash(admin['password'], password):
-                session['admin_name'] = admin['name']
-                session['admin_role'] = 'admin' 
-                return jsonify({"success": True, "name": admin['name'], 'image_url': login_photo_path})
-            else:
-                return jsonify({"success": False, "error": "Incorrect password"})
-
-    return jsonify({"success": False, "error": "No matching admin found"})
+   
+           
+               
 @app.route("/admin_login", methods=['GET'])
 def admin_login_page():
     return render_template("admin_login.html")
@@ -512,71 +453,7 @@ def login():
     session["email"]= user["email"]
     session['user_role'] = 'user'  # Add role for clarity
     return jsonify({"success": True, "user_name": user['user_name']})
-@app.route("/user_login_face", methods=["GET"])
-def user_login_face():
-    return render_template("user_login_face.html")
-@app.route("/login_face", methods=["POST"])
-def login_face():
-    # Get form data
-    name = request.form.get("name")
-    photo = request.files.get("photo")
-
-    # Validate input
-    if not name or not photo:
-        return jsonify({"success": False, "error": "Name and photo are required"}), 400
-
-    # Save the login photo to the uploads directory
-    filename = secure_filename(photo.filename)
-    login_photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    photo.save(login_photo_path)
-
-    # Load and encode the login photo
-    login_image = face_recognition.load_image_file(login_photo_path)
-    login_face_encodings = face_recognition.face_encodings(login_image)
-    if len(login_face_encodings) == 0:
-        return jsonify({"success": False, "error": "No face found in the login image"}), 400
-
-    login_face_encoding = login_face_encodings[0]
-
-    # Iterate through all users in the database
-    for user in collection.find({"role": "user"}):
-        # Fetch the user's photo URL from Cloudinary
-        photo_url = user.get("photo_url")
-        if not photo_url:
-            continue  # Skip users without a photo URL
-
-        # Download the image from Cloudinary
-        response = requests.get(photo_url)
-        if response.status_code != 200:
-            continue  # Skip if the image cannot be fetched
-
-        # Load the registered user's photo
-        registered_image = Image.open(BytesIO(response.content))
-        registered_image = np.array(registered_image)  # Convert to numpy array for face_recognition
-
-        # Encode the registered user's face
-        registered_face_encodings = face_recognition.face_encodings(registered_image)
-        if len(registered_face_encodings) == 0:
-            continue  # Skip if no face is found in the registered image
-
-        registered_face_encoding = registered_face_encodings[0]
-
-
-        # Compare faces
-        matches = face_recognition.compare_faces([registered_face_encoding], login_face_encoding, tolerance=0.5)
-        print("Face matches:", matches)
-
-        if any(matches):
-            # If faces match, create a session for the user
-            session['user_name'] = user['user_name']
-            session['user_role'] = 'user'
-            return jsonify({
-                "success": True,
-                "name": user['name']
-            })
-
-    # If no matching user is found
-    return jsonify({"success": False, "error": "No matching user found"}), 404
+    
 @app.route("/google_user_profile")
 def google_profile():
     # Check if the session is for a user
