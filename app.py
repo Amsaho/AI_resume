@@ -1583,7 +1583,7 @@ def fetch_jobs():
     conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, c.name AS company_name
+        SELECT j.id, j.title, j.description, j.skills, j.experience, j.package, j.location, j.projects, j.education, j.qualifications, c.name AS company_name
         FROM job_descriptions j
         JOIN companies c ON j.company_id = c.id
     """)
@@ -1596,7 +1596,7 @@ def fetch_job_by_id(job_id):
     conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, j.company_id
+        SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, j.company_id,j.package, j.location
         FROM job_descriptions j
         WHERE j.id = ?
     """, (job_id,))
@@ -1614,25 +1614,25 @@ def fetch_companies():
     return companies
 
 # Insert a new job
-def insert_job(title, description, skills, experience, projects, education, qualifications, company_id):
+def insert_job(title, description, skills, experience, projects, package, location, education, qualifications, company_id):
     conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO job_descriptions (title, description, skills, experience, projects, education, qualifications, company_id)
+        INSERT INTO job_descriptions (title, description, skills, experience, projects, package, location education, qualifications, company_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (title, description, skills, experience, projects, education, qualifications, company_id))
+    """, (title, description, skills, experience, projects, package, location, education, qualifications, company_id))
     conn.commit()
     conn.close()
 
 # Update an existing job
-def update_job(job_id, title, description, skills, experience, projects, education, qualifications, company_id):
+def update_job(job_id, title, description, skills, experience, projects, package, location,education, qualifications, company_id):
     conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE job_descriptions
-        SET title = ?, description = ?, skills = ?, experience = ?, projects = ?, education = ?, qualifications = ?, company_id = ?
+        SET title = ?, description = ?, skills = ?, experience = ?, projects = ?, package= ?, location=?, education = ?, qualifications = ?, company_id = ?
         WHERE id = ?
-    """, (title, description, skills, experience, projects, education, qualifications, company_id, job_id))
+    """, (title, description, skills, experience, projects,package, location, education, qualifications, company_id, job_id))
     conn.commit()
     conn.close()
 
@@ -1692,15 +1692,17 @@ def admin_jobs():
         experience = request.form.get("experience")
         projects = request.form.get("projects")
         education = request.form.get("education")
+        package = request.form.get("package")
+        location = request.form.get("location")
         qualifications = request.form.get("qualifications")
         company_id = request.form.get("company_id")
         job_id = request.form.get("job_id")
 
         if job_id:  # Update existing job
-            update_job(job_id, title, description, skills, experience, projects, education, qualifications, company_id)
+            update_job(job_id, title, description, skills, experience, projects,package,location, education, qualifications, company_id)
             flash("Job updated successfully!", "success")
         else:  # Insert new job
-            insert_job(title, description, skills, experience, projects, education, qualifications, company_id)
+            insert_job(title, description, skills, experience, projects, package,location,education, qualifications, company_id)
             flash("Job added successfully!", "success")
 
         return redirect(url_for("admin_jobs"))
@@ -1754,6 +1756,8 @@ def get_job(job_id):
             "skills": job["skills"],
             "experience": job["experience"],
             "projects": job["projects"],
+            "package": job["package"],
+            "location": job["location"],
             "education": job["education"],
             "qualifications": job["qualifications"],
             "company_id": job["company_id"]
