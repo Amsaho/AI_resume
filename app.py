@@ -1,6 +1,13 @@
 from dotenv import load_dotenv
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests  # Google OAuth Requests
+
+request_obj = google_requests.Request()
+
+from google_auth_oauthlib.flow import Flow
 import os
 load_dotenv()
+import face_recognition
 from flask import Flask, jsonify, request, render_template, redirect, url_for, session,send_file,send_from_directory,flash
 from bson import ObjectId
 import base64
@@ -49,7 +56,25 @@ client = MongoClient(os.getenv("MONGO_URI"))
 def before_request():
     session.permanent = True  
 
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  
 
+flow = Flow.from_client_config(
+    client_config={
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [GOOGLE_REDIRECT_URI],
+            "javascript_origins": ["http://127.0.0.1:5000"]
+        }
+    },
+    scopes=["openid", "https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"],
+    redirect_uri=GOOGLE_REDIRECT_URI
+)
 
 SMTP_EMAIL = os.getenv("SMTP_EMAIL")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
@@ -93,11 +118,23 @@ def get_jobs_from_db():
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT j.id, j.title, j.description, j.skills, c.name, c.logo_url
+        SELECT j.id, j.title, j.description, j.skills, j.location, j.package, c.name, c.logo_url
         FROM job_descriptions j
         JOIN companies c ON j.company_id = c.id
     """)
-    jobs = [{"id": row[0],"title": row[1], "description": row[2], "skills": row[3], "company": row[4], "logo_url": row[5]} for row in cursor.fetchall()]
+    jobs = [
+        {
+            "id": row[0],
+            "title": row[1],
+            "description": row[2],
+            "skills": row[3],
+            "location": row[4],  # Added location
+            "package": row[5],   # Added package
+            "company": row[6],
+            "logo_url": row[7]
+        }
+        for row in cursor.fetchall()
+    ]
     conn.close()
     return jobs
 
@@ -146,9 +183,6 @@ def admin_register():
     session['admin_role'] = 'admin'
 
     return jsonify({"success": True, "message": "Admin registration successful"})
-@app.route("/admin_login", methods=['GET'])
-def admin_login_page():
-    return render_template("admin_login.html")
 @app.route("/admin_login", methods=["POST"])
 def admin_login():
     
@@ -174,7 +208,119 @@ def admin_login():
     session['admin_role'] = 'admin'  # Add role for clarity
     return jsonify({"success": True, "name": admin['name']})
 
+import requests
+@app.route("/admin_login_face_get", methods=["GET"])
+def admin_login_face_get():
+    return render_template("admin_login_face.html")
 
+@app.route("/admin_login_face", methods=["POST"])
+def admin_login_face():
+    name = request.form.get("name")
+    password = request.form.get("password")
+    photo = request.files['photo']
+    
+    # Validate input
+    if not name or not password or not photo:
+        return jsonify({"success": False, "error": "Invalid data"}), 400
+    
+    # Save the login photo to the static/uploads directory
+    filename = secure_filename(photo.filename)
+    login_photo_path = os.path.join(app.config['ADMIN_LOGIN_UPLOAD_FOLDER'], filename)
+    photo.save(login_photo_path)
+
+    # Load and encode the login photo
+    login_image = face_recognition.load_image_file(login_photo_path)
+    login_face_encodings = face_recognition.face_encodings(login_image)
+    if len(login_face_encodings) == 0:
+        return jsonify({"success": False, "error": "No face found in the login image"})
+    
+    login_face_encoding = login_face_encodings[0]
+
+    # Iterate through all admins in the database
+    for admin in admin_collection.find({"role": "admin"}):
+        # Fetch the admin's photo URL from Cloudinary
+        photo_url = admin['photo_url']
+        
+        # Download the image from Cloudinary
+        response = requests.get(photo_url)
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": "Failed to fetch admin photo from Cloudinary"})
+        
+        # Load the image into memory
+        registered_image = Image.open(BytesIO(response.content))
+        registered_image = np.array(registered_image)  # Convert to numpy array for face_recognition
+
+        # Encode the registered admin's face
+        registered_face_encodings = face_recognition.face_encodings(registered_image)
+        if len(registered_face_encodings) == 0:
+            continue  # Skip if no face is found in the registered image
+
+        registered_face_encoding = registered_face_encodings[0]
+
+        # Compare faces
+        matches = face_recognition.compare_faces([registered_face_encoding], login_face_encoding)
+        print("Face matches:", matches)
+        print("Password matches:", check_password_hash(admin['password'], password))
+
+        if any(matches):
+            # Check if the password matches using check_password_hash
+            if check_password_hash(admin['password'], password):
+                session['admin_name'] = admin['name']
+                session['admin_role'] = 'admin' 
+                return jsonify({"success": True, "name": admin['name'], 'image_url': login_photo_path})
+            else:
+                return jsonify({"success": False, "error": "Incorrect password"})
+
+    return jsonify({"success": False, "error": "No matching admin found"})
+@app.route("/admin_login", methods=['GET'])
+def admin_login_page():
+    return render_template("admin_login.html")
+@app.route("/google_login")
+def google_login():
+    # Redirect to Google's OAuth consent screen
+    authorization_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true"
+    )
+    session["state"] = state  # Store the state for CSRF protection
+    return redirect(authorization_url)
+@app.route("/success")
+def success():
+    # Handle the OAuth callback
+    try:
+        # Fetch the token from the authorization response
+        flow.fetch_token(authorization_response=request.url)
+        credentials = flow.credentials
+
+        # Create an instance of the Request class
+        
+
+        # Verify the OAuth token
+        id_info = id_token.verify_oauth2_token(
+            credentials.id_token,
+            request_obj,  # Pass the instance, not the class
+            GOOGLE_CLIENT_ID
+        )
+
+        # Store user information in the session
+        session["email"] = id_info.get("email")
+        print(f"User email: {id_info.get('email')}")
+
+        # Check if the user exists in the database
+        user = collection.find_one({"email": id_info.get("email")})
+        if user:
+            # If the user exists, set session variables
+            session["user_name"] = user["user_name"]
+            session["user_role"] = "user"
+            return redirect(url_for("user_profile"))
+        else:
+            # If the user does not exist, redirect to the registration page
+            flash("Please complete your registration.", "info")
+            return redirect(url_for("user_register"))
+
+    except Exception as e:
+        print(f"Error during OAuth callback: {e}")
+        return "Authentication failed. Please try again."
 @app.route("/admin")
 def admin():
     # Check if the session is for an admin
@@ -363,10 +509,89 @@ def login():
 
     # Set session for the logged-in user
     session['user_name'] = user['user_name']
+    session["email"]= user["email"]
     session['user_role'] = 'user'  # Add role for clarity
     return jsonify({"success": True, "user_name": user['user_name']})
-@app.route("/success")
-def success():
+@app.route("/user_login_face", methods=["GET"])
+def user_login_face():
+    return render_template("user_login_face.html")
+@app.route("/login_face", methods=["POST"])
+def login_face():
+    # Get form data
+    name = request.form.get("name")
+    photo = request.files.get("photo")
+
+    # Validate input
+    if not name or not photo:
+        return jsonify({"success": False, "error": "Name and photo are required"}), 400
+
+    # Save the login photo to the uploads directory
+    filename = secure_filename(photo.filename)
+    login_photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    photo.save(login_photo_path)
+
+    # Load and encode the login photo
+    login_image = face_recognition.load_image_file(login_photo_path)
+    login_face_encodings = face_recognition.face_encodings(login_image)
+    if len(login_face_encodings) == 0:
+        return jsonify({"success": False, "error": "No face found in the login image"}), 400
+
+    login_face_encoding = login_face_encodings[0]
+
+    # Iterate through all users in the database
+    for user in collection.find({"role": "user"}):
+        # Fetch the user's photo URL from Cloudinary
+        photo_url = user.get("photo_url")
+        if not photo_url:
+            continue  # Skip users without a photo URL
+
+        # Download the image from Cloudinary
+        response = requests.get(photo_url)
+        if response.status_code != 200:
+            continue  # Skip if the image cannot be fetched
+
+        # Load the registered user's photo
+        registered_image = Image.open(BytesIO(response.content))
+        registered_image = np.array(registered_image)  # Convert to numpy array for face_recognition
+
+        # Encode the registered user's face
+        registered_face_encodings = face_recognition.face_encodings(registered_image)
+        if len(registered_face_encodings) == 0:
+            continue  # Skip if no face is found in the registered image
+
+        registered_face_encoding = registered_face_encodings[0]
+
+
+        # Compare faces
+        matches = face_recognition.compare_faces([registered_face_encoding], login_face_encoding, tolerance=0.5)
+        print("Face matches:", matches)
+
+        if any(matches):
+            # If faces match, create a session for the user
+            session['user_name'] = user['user_name']
+            session['user_role'] = 'user'
+            return jsonify({
+                "success": True,
+                "name": user['name']
+            })
+
+    # If no matching user is found
+    return jsonify({"success": False, "error": "No matching user found"}), 404
+@app.route("/google_user_profile")
+def google_profile():
+    # Check if the session is for a user
+    if 'email' not in session:
+        return redirect(url_for('user_login'))
+    jobs=get_jobs_from_db()
+    email= session['email']
+    user = collection.find_one({"email": email})
+    job_applications = list(job_applications_collection.find({"user_name":user["user_name"]}))
+
+    # Add job applications to the user object
+    user['application_status'] = job_applications
+    return render_template("success.html", user=user,jobs=jobs)
+@app.route("/user_profile")
+def user_profile():
     # Check if the session is for a user
     if 'user_name' not in session or session.get('user_role') != 'user':
         return redirect(url_for('user_login'))
@@ -402,6 +627,7 @@ def admin_success(user_id):
 def logout():
     # Clear user session keys
     session.pop('user_name', None)
+    session.pop('email', None)
     session.pop('user_role', None)
     return redirect(url_for('index'))
 
@@ -575,6 +801,8 @@ def allowed_file(filename):
 
 @app.route("/upload_resume", methods=["POST"])
 def upload_resume():
+    if 'email' not in session:
+        return redirect(url_for('user_login'))
     if 'user_name' not in session or session.get('user_role') != 'user':
         return jsonify({"success": False, "error": "User not logged in"}), 401
 
@@ -666,6 +894,8 @@ def upload_to_cloudinary(image_data, retries=3, delay=2):
                 raise  # Re-raise the exception after all retries fail
 @app.route("/submit", methods=["POST"])
 def submit():
+    if 'email' not in session:
+        return redirect(url_for('user_login'))
     if 'user_name' not in session:
         return jsonify({"error": "User not logged in"}), 401
 
@@ -847,12 +1077,12 @@ def resume_delete():
         )
 
         flash("Resume deleted successfully!", "success")
-        return redirect(url_for('success'))  # Redirect to the success page
+        return redirect(url_for('user_profile'))  # Redirect to the success page
 
     except Exception as e:
         print(f"Error deleting resume: {e}")
         flash("An error occurred while deleting the resume.", "error")
-        return redirect(url_for('success'))
+        return redirect(url_for('user_profile'))
 @app.route("/Generated_resume_delete", methods=["POST"])
 def Generated_resume_delete():
     if 'user_name' not in session:
@@ -893,7 +1123,7 @@ def Generated_resume_delete():
 @app.route('/view_profile')
 def view_profile():
     # Check if the session is for a user
-    return redirect('success')
+    return redirect('user_profile')
 @app.route('/admin_view_profile/<user_id>')
 def admin_view_profile(user_id):
     # Check if the session is for a user
@@ -1410,7 +1640,6 @@ def view_applications():
     if 'admin_name' not in session or session.get('admin_role') != 'admin':
         return jsonify({"error": "Admin not logged in"}), 401
 
-    # Fetch all job applications
     applications = list(job_applications_collection.find({}))
 
     return render_template("view_applications.html", applications=applications)
@@ -1436,12 +1665,14 @@ def view_job(job_id):
     conn = sqlite3.connect("jobs.db")
     cursor = conn.cursor()
     cursor.execute("""
-    SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, 
-           c.name, c.logo_url, c.career_page_url 
-    FROM job_descriptions j 
-    JOIN companies c ON j.company_id = c.id 
-    WHERE j.id = ?
-    """, (job_id,))
+SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, 
+       j.package, j.location, c.name, c.logo_url, c.career_page_url 
+FROM job_descriptions j 
+JOIN companies c ON j.company_id = c.id 
+WHERE j.id = ?
+""", (job_id,))
+
+
     job = cursor.fetchone()
     conn.close()
     
@@ -1449,29 +1680,31 @@ def view_job(job_id):
         return "Job not found", 404
     
     job_data = {
-        "id": job[0],
-        "title": job[1],
-        "description": job[2],
-        "skills": job[3],
-        "experience": job[4],
-        "projects": job[5],
-        "education": job[6],
-        "qualifications": job[7],
-        "company": job[8],
-        "logo_url": job[9],
-        "career_page": job[10]
-    }
+    "id": job[0],
+    "title": job[1],
+    "description": job[2],
+    "skills": job[3],
+    "experience": job[4],
+    "projects": job[5],
+    "education": job[6],
+    "qualifications": job[7],
+    "package": job[8],        # Add package
+    "location": job[9],       # Add location
+    "company": job[10],
+    "logo_url": job[11],
+    "career_page": job[12]
+}
     
     return render_template("view_job.html", job=job_data)
 
-def get_db_connection():
+def get_db_connection1():
     conn = sqlite3.connect("jobs.db")
     conn.row_factory = sqlite3.Row  # Return rows as dictionaries
     return conn
 
 # Fetch all jobs with company details
 def fetch_jobs():
-    conn = get_db_connection()
+    conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, c.name AS company_name
@@ -1484,7 +1717,7 @@ def fetch_jobs():
 
 # Fetch a single job by ID
 def fetch_job_by_id(job_id):
-    conn = get_db_connection()
+    conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT j.id, j.title, j.description, j.skills, j.experience, j.projects, j.education, j.qualifications, j.company_id
@@ -1497,7 +1730,7 @@ def fetch_job_by_id(job_id):
 
 # Fetch all companies with full details
 def fetch_companies():
-    conn = get_db_connection()
+    conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("SELECT id, name, logo_url, career_page_url FROM companies")
     companies = cursor.fetchall()
@@ -1506,7 +1739,7 @@ def fetch_companies():
 
 # Insert a new job
 def insert_job(title, description, skills, experience, projects, education, qualifications, company_id):
-    conn = get_db_connection()
+    conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO job_descriptions (title, description, skills, experience, projects, education, qualifications, company_id)
@@ -1517,7 +1750,7 @@ def insert_job(title, description, skills, experience, projects, education, qual
 
 # Update an existing job
 def update_job(job_id, title, description, skills, experience, projects, education, qualifications, company_id):
-    conn = get_db_connection()
+    conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE job_descriptions
@@ -1529,7 +1762,7 @@ def update_job(job_id, title, description, skills, experience, projects, educati
 
 # Delete a job
 def delete_job(job_id):
-    conn = get_db_connection()
+    conn = get_db_connection1()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM job_descriptions WHERE id = ?", (job_id,))
     conn.commit()
@@ -1537,7 +1770,7 @@ def delete_job(job_id):
 
 # Insert a new company
 def insert_company(name, logo_url, career_page_url):
-    conn = get_db_connection()
+    conn = get_db_connection1()
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1553,7 +1786,7 @@ def insert_company(name, logo_url, career_page_url):
 
 # Update an existing company
 def update_company(company_id, name, logo_url, career_page_url):
-    conn = get_db_connection()
+    conn = get_db_connection1()
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1657,17 +1890,49 @@ def delete_jobs(job_id):
     delete_job(job_id)
     flash("Job deleted successfully!", "success")
     return redirect(url_for("admin_jobs"))
+@app.route("/suggestions")
+def get_suggestions():
+    query = request.args.get("query", "").lower()
 
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Fetch suggestions from all fields
+    cursor.execute("""
+        SELECT DISTINCT title FROM job_descriptions WHERE LOWER(title) LIKE ?
+        UNION
+        SELECT DISTINCT location FROM job_descriptions WHERE LOWER(location) LIKE ?
+        UNION
+        SELECT DISTINCT name FROM companies WHERE LOWER(name) LIKE ?
+    """, (f"%{query}%", f"%{query}%", f"%{query}%"))
+
+    suggestions = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(suggestions)
+@app.route("/get_job_id")
+def get_job_id():
+    value = request.args.get("value")  # Get the search value
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Search for job ID across title, location, and company fields
+    cursor.execute("""
+        SELECT j.id 
+        FROM job_descriptions j 
+        JOIN companies c ON j.company_id = c.id 
+        WHERE j.title = ? OR j.location = ? OR c.name = ?
+    """, (value, value, value))
+
+    job_id = cursor.fetchone()
+    conn.close()
+    return jsonify({"job_id": job_id[0] if job_id else None})
 load_dotenv()
 google_api_key = os.getenv("GOOGLE_API_KEY")
 import google.generativeai as genai
 genai.configure(api_key=google_api_key)
 
-# List all available models (for debugging)
-models = genai.list_models()
 
-
-# Initialize the Gemini model
 model = genai.GenerativeModel('gemini-1.5-pro')  # Use the correct model name
 
 # Chatbot route
@@ -1712,6 +1977,188 @@ def chatbot_interaction():
         return jsonify({"response": chatbot_response})
 
     return render_template("chatbot.html")
+def get_db_connection():
+    conn = sqlite3.connect('jobs_database.db')
+    conn.row_factory = sqlite3.Row  # Return rows as dictionaries
+    return conn
 
+# Route to render the job listings page
+@app.route('/api_job')
+def api_job():
+    conn = get_db_connection()
+    jobs = conn.execute('SELECT * FROM jobs').fetchall()  # Fetch all jobs from the database
+    conn.close()
+    return render_template('api_job.html', jobs=jobs)
+
+# Route to fetch suggestions for the search bar
+@app.route('/api_suggestions')
+def api_suggestions():
+    query = request.args.get('query', '').lower()
+    conn = get_db_connection()
+    jobs = conn.execute('SELECT * FROM jobs').fetchall()
+    conn.close()
+
+    
+    suggestions = set()
+    for job in jobs:
+        if query in job['job_title'].lower():
+            suggestions.add(job['job_title'])
+        if query in job['location'].lower():
+            suggestions.add(job['location'])
+        if query in job['company_name'].lower():
+            suggestions.add(job['company_name'])
+
+    return jsonify(list(suggestions))
+
+# Route to view a specific job
+@app.route('/api_view_job/<int:job_id>')
+def api_view_job(job_id):
+    conn = get_db_connection()
+    job = conn.execute('SELECT * FROM jobs WHERE id = ?', (job_id,)).fetchone()
+    conn.close()
+    return render_template("api_view_job.html",job=job)
+
+# Route to apply for a job
+
+API_URL = "https://jobs-api14.p.rapidapi.com/v2/list"
+HEADERS = {
+    "x-rapidapi-key": "26a59f0792msh168576abcd7d7c6p10fb95jsndf4892095503",
+    "x-rapidapi-host": "jobs-api14.p.rapidapi.com"
+}
+
+@app.route('/api_fetch_store_jobs', methods=['GET'])
+def fetch_store_jobs():
+    search_query = request.args.get('query', '')
+
+    if not search_query:
+        return jsonify({"error": "No search query provided"}), 400
+
+    # Fetch jobs from API based on search query
+    query_params = {"query": search_query, "location": "india"}  
+    response = requests.get(API_URL, headers=HEADERS, params=query_params)
+
+    if response.status_code != 200:
+        return jsonify({"error": "Failed to fetch jobs"}), 500
+
+    jobs_data = response.json().get("jobs", [])  
+
+    conn = sqlite3.connect("jobs_database.db")
+    cursor = conn.cursor()
+
+    # Create jobs table if it doesn't exist
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            location TEXT,
+            company_name TEXT,
+            company_logo TEXT,
+            url TEXT,
+            description TEXT,
+            employment_type TEXT,
+            date_posted TEXT
+        )
+    ''')
+
+    # Insert fetched jobs into the database
+    for job in jobs_data:
+        cursor.execute('''
+            INSERT INTO jobs (title, location, company_name, company_logo, url, description, employment_type, date_posted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            job.get("title", "N/A"),
+            job.get("location", "N/A"),
+            job.get("company", "N/A"),
+            job.get("image", "N/A"),  
+            job.get("jobProviders", [{}])[0].get("url", "N/A"),  
+            job.get("description", "N/A"),
+            job.get("employmentType", "N/A"),
+            job.get("datePosted", "N/A")
+        ))
+
+    conn.commit()
+    
+    # Fetch stored jobs
+    cursor.execute("SELECT id, title, location, company_name FROM jobs WHERE LOWER(title) LIKE ? OR LOWER(location) LIKE ? OR LOWER(company_name) LIKE ?", 
+                   (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+
+    stored_jobs = [{"id": job[0], "title": job[1], "location": job[2], "company_name": job[3]} for job in cursor.fetchall()]
+    
+    conn.close()
+
+    return jsonify(stored_jobs)
+@app.route("/api_apply_job/<int:job_id>", methods=["POST"])
+def api_apply_job(job_id):
+    # Decode the job_title to handle spaces and special characters
+    print(f"Job title received: {job_id}")
+
+    if 'user_name' not in session or session.get('user_role') != 'user':
+        return jsonify({"error": "User not logged in"}), 401
+
+    user_name = session['user_name']
+    user = collection.find_one({"user_name": user_name})
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Fetch the job details from the database using job_title
+    conn = sqlite3.connect("jobs_database.db")
+    cursor = conn.cursor()
+    cursor.execute('SELECT job_title, company_name, company_logo FROM jobs')
+    jobs = cursor.fetchone()
+    conn.close()
+
+    if not jobs:
+        return jsonify({"error": "Job not found"}), 404
+
+    job_title, company_name, logo_url = jobs  # Extract job title and company name
+
+    # Check if the user has already applied for this job
+    existing_application = job_applications_collection.find_one({
+        "user_name": user_name,
+        "job_title": job_title
+    })
+
+    if existing_application:
+        return jsonify({"error": "You have already applied for this job"}), 400
+
+    # Use the user's existing resume or generate a new one
+    if user.get('resume_pdf_id'):
+        resume_pdf_id = user['resume_pdf_id']
+        resume_text = user.get('upload_text', '')
+    else:
+        return jsonify({"error": "No resume found. Please upload resume first."}), 400
+
+    # Save the job application
+    application_data = {
+        "user_name": user_name,
+        "job_title": job_title,
+        "company_name": company_name,
+        "logo_url":logo_url,  # Add company name to the application data
+        "resume_pdf_id": resume_pdf_id,
+        "resume_text": resume_text,
+        "ats_score": user["ats_score"],
+        "missing_skills": user["missing_skills"],
+        "status": "pending",  # Initial status
+        "application_date": ist_time_str
+    }
+    job_applications_collection.insert_one(application_data)
+    collection.update_one(
+        {"user_name": user_name},
+        {"$set": {"application_status": list(application_data)}}
+    )
+
+    # Send confirmation email with job title and company name
+    try:
+        send_confirmation_email(user['email'], job_title, company_name,logo_url)
+    except Exception as e:
+        print(f"Failed to send confirmation email: {e}")
+
+    return jsonify({
+        "message": "Job application submitted successfully!",
+        "ats_score": user["ats_score"],
+        "missing_skills": user["missing_skills"],
+        "status": "pending"
+    })
 if __name__ == "__main__":
     app.run(debug=os.getenv('DEBUG', 'False') == 'True')
