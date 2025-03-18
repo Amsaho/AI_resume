@@ -349,6 +349,10 @@ def register():
         # Set user session
         session['user_name'] = user_name
         session['user_role'] = 'user'
+        try:
+           send_registration_email(email,name)
+        except Exception as e:
+           print(f"Failed to send confirmation email: {e}")
 
         # Return success response
         return jsonify({"success": True, 'name': name})
@@ -426,6 +430,120 @@ def edit_user(user_id):
 
     # Render the edit user form with the user's current data
     return render_template('edit_user.html', user=user)
+def send_registration_email(user_email, user_name):
+    """Send an email to notify the user that their application has been accepted."""
+    subject = "Congratulations! Your Registration account created Succesfully"
+    
+    # HTML email body with company logo and name
+    html_body = f"""
+    <html>
+    <body>
+       <p>Dear "{user_name}",</p>
+            <p>Your JobPortal account created successfully</p>
+
+            <p>Explore various job opportunities at our portal by logging-in</p>
+            <p>Best Regards,</p>
+            <p>JobPortal</p>
+
+    </body>
+    </html>
+    """ 
+
+    # Create the email
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_EMAIL
+    msg['To'] = user_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(html_body, 'html'))  # Attach HTML content
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Secure the connection
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
+        print("registration email sent successfully!")
+    except Exception as e:
+        print(f"Error sending registration email: {e}")
+
+def hash_password(password):
+    """Hash the password using scrypt."""
+    return generate_password_hash(password)
+
+
+# Function to send password email
+def send_password_email(user_email, name, user_name, user_password):
+    """Send an email to notify the user of their login credentials."""
+    subject = "Your Login Account Password"
+    
+    # HTML email body
+    html_body = f"""
+    <html>
+    <body>
+       <p>Dear {name},</p>
+       <p>Your username and password are given below:</p>
+       <p><strong>Username:</strong> {user_name}</p>
+       <p><strong>Password:</strong> {user_password}</p>
+    </body>
+    </html>
+    """ 
+
+    # Create the email
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_EMAIL
+    msg['To'] = user_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(html_body, 'html'))  # Attach HTML content
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Secure the connection
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, user_email, msg.as_string())
+        print("Password email sent successfully!")
+    except Exception as e:
+        print(f"Error sending password email: {e}")
+
+# Forgot Password Route
+@app.route("/forget-password", methods=['GET', 'POST'])
+def forget_password():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+
+        # Validate password and confirm password
+        if password != confirm_password:
+            flash('Passwords do not match. Please try again.', 'error')
+            return redirect(url_for('forget_password'))
+
+        # Fetch user details from the MongoDB collection
+        user = collection.find_one({'email': email})
+
+        if user:
+            hashed_password = hash_password(password)
+
+            # Update the user's password in the database
+            collection.update_one(
+                {'email': email},
+                {'$set': {'password': hashed_password}}
+            )
+
+            # Send the email with the new password
+            send_password_email(
+                user_email=user['email'],
+                name=user['name'],
+                user_name=user['user_name'],
+                user_password=password
+            )
+            flash('Your password has been reset successfully.', 'success')
+        else:
+            flash('No account found with that email address.', 'error')
+
+        return redirect(url_for('forget_password'))
+
+    return render_template('forget_password.html')
+
+
 @app.route('/user_login')
 def user_login():
     return render_template('login.html')
