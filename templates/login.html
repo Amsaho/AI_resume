@@ -181,16 +181,13 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        {% for category, message in messages %}
-            <div class="alert alert-{{ category }}">
-                {{ message }}
-            </div>
-        {% endfor %}
-    {% endif %}
-{% endwith %}
+    
     <div class="container">
+        <h2>Login with Face</h2>
+        <form action="/user_login_face" method="GET">
+            <button class="btn" type="button">Login with Face</button>
+        </form>
+        <div class="separator">or</div>
         <h2>Login</h2>
         <form>
             <!-- Username Field -->
@@ -212,7 +209,7 @@
                 <label>
                     <input type="checkbox"> Remember Me
                 </label>
-                <a href="#">Forgot Password?</a>
+                <a href="{{ url_for('forget_password') }}">Forgot Password?</a>
             </div>
 
             <!-- Login Button -->
@@ -284,6 +281,4 @@
         }
     </script>
 </body>
-
 </html>
-
